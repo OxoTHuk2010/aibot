@@ -1,10 +1,25 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
-from config import settings
+
 from app.api.health import router as health_router
+from app.config import settings
+from app.database import dispose_engine
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """Release application resources during graceful shutdown."""
+    yield
+    await dispose_engine()
+
 
 def create_app() -> FastAPI:
-    app = FastAPI(
-        title=settings.app_name,
-    )
-    app.include_router(health_router, prefix='/api')
-    return app
+    """Create and configure the FastAPI application."""
+    application = FastAPI(title=settings.app_name, lifespan=lifespan)
+    application.include_router(health_router, prefix="/api")
+    return application
+
+
+app = create_app()
