@@ -1,166 +1,243 @@
 from datetime import datetime
-from sqlalchemy import (String, Text, Boolean, DateTime, Integer, Index, func, ForeignKey)
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from app.database import Base
 from enum import Enum as PyEnum
+
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Table,
+    Text,
+    func,
+)
+from sqlalchemy import (
+    Enum as SqlEnum,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.database import Base
+
+
+def enum_values(enum_class: type[PyEnum]) -> list[str]:
+    """Persist the lowercase string values of application enums."""
+    return [str(member.value) for member in enum_class]
+
+
+class SourceType(str, PyEnum):
+    RSS = "rss"
+    HTML = "html"
+    TELEGRAM = "telegram"
 
 
 class NewsItemStatus(str, PyEnum):
-    """Enumeration of possible statuses for a news item throughout its lifecycle.
+    NEW = "new"
+    FILTERED = "filtered"
+    FAILED = "failed"
 
-    Attributes:
-        NEW: News item has been ingested but not yet processed.
-        FILTERED: News item has passed through keyword filtering.
-        GENERATED: A post has been generated from this news item.
-        PUBLISHED: The generated post has been published.
-        FAILED: Processing or publishing of this news item failed.
-    """
-    NEW = 'new'
-    FILTERED = 'filtered'
-    GENERATED = 'generated'
-    FAILED = 'failed'
 
 class PostStatus(str, PyEnum):
-    """Enumeration of possible statuses for a generated post.
+    GENERATED = "generated"
+    PUBLISHED = "published"
+    FAILED = "failed"
 
-    Attributes:
-        GENERATED: The post text has been generated from a news item.
-        PUBLISHED: The post has been successfully published to the target channel.
-        FAILED: Post generation or publishing failed.
-    """
-    GENERATED = 'generated'
-    PUBLISHED = 'published'
-    FAILED = 'failed'
 
 class KeywordType(str, PyEnum):
-    """Enumeration of keyword filtering types.
+    INCLUDE = "include"
+    EXCLUDE = "exclude"
 
-    Attributes:
-        INCLUDE: Keyword used to include matching news items.
-        EXCLUDE: Keyword used to exclude matching news items.
-    """
-    INCLUDE = 'include'
-    EXCLUDE = 'exclude'
+
+post_news_items = Table(
+    "post_news_items",
+    Base.metadata,
+    Column(
+        "post_id",
+        ForeignKey("posts.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "news_item_id",
+        ForeignKey("news.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+)
 
 
 class Source(Base):
-    """Represents a content source (RSS feed, HTML page, or Telegram channel) from which news items are parsed.
+    """RSS, HTML, or Telegram source from which news items are collected."""
 
-    Attributes:
-        id: Auto-incrementing primary key.
-        name: Human-readable name of the source.
-        source_type: Type of the source — one of 'rss', 'html', or 'telegram'.
-        url: URL of the source. Must be unique across all sources.
-        enabled: Whether the source is active and should be parsed.
-        created_at: Timestamp when the source was created.
-        last_parsed_at: Timestamp of the last successful parse attempt.
-
-    Relationships:
-        news_items: Collection of NewsItem instances parsed from this source.
-    """
-    __tablename__ = 'sources'
+    __tablename__ = "sources"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
-    source_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    source_type: Mapped[SourceType] = mapped_column(
+        SqlEnum(
+            SourceType,
+            name="source_type",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
     url: Mapped[str] = mapped_column(String(500), nullable=False, unique=True)
-    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
-    last_parsed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
+    last_parsed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
-    news_items: Mapped[list['NewsItem']] = relationship(back_populates='source')
+    news_items: Mapped[list["NewsItem"]] = relationship(
+        back_populates="source",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
 
 class NewsItem(Base):
-    """Represents a single news item parsed from a Source.
+    """News item collected from one source."""
 
-    Stores the raw content, a generated summary, and tracks the processing
-    status through the pipeline (new → filtered → generated → published/failed).
-
-    Attributes:
-        id: Auto-incrementing primary key.
-        title: Headline or title of the news item.
-        url: Direct link to the original article (optional).
-        summary: Short summary or excerpt of the news item (optional).
-        raw_text: Full raw text content of the news item (optional).
-        source_id: Foreign key referencing the Source this item belongs to.
-        content_hash: Unique hash of the content for deduplication. Indexed.
-        status: Current NewsItemStatus in the processing pipeline. Indexed.
-        created_at: Timestamp when the news item was created. 
-
-    Relationships:
-        source: The Source from which this news item was parsed.
-        posts: The Post generated from this news item (one-to-one).
-    """
-    __tablename__ = 'news'
+    __tablename__ = "news"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_id: Mapped[int] = mapped_column(
+        ForeignKey("sources.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
-    url: Mapped[str|None] = mapped_column(String(500), nullable=True)
-    summary: Mapped[str|None] = mapped_column(Text, nullable=True)
-    raw_text: Mapped[str|None] = mapped_column(Text, nullable=True)
-    source_id: Mapped[int] = mapped_column(ForeignKey('sources.id'), nullable=False, index=True)
-    content_hash: Mapped[str] = mapped_column(Text, unique=True, nullable=False, index=True)
-    status: Mapped[NewsItemStatus] = mapped_column(String(20), default=NewsItemStatus.NEW, nullable=False) #NewsItemStatus
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
-    error_message: Mapped[str|None] = mapped_column(String, nullable=True) 
+    url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    raw_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    status: Mapped[NewsItemStatus] = mapped_column(
+        SqlEnum(
+            NewsItemStatus,
+            name="news_item_status",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=enum_values,
+            validate_strings=True,
+        ),
+        default=NewsItemStatus.NEW,
+        nullable=False,
+    )
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
-    source: Mapped['Source'] = relationship(back_populates='news_items')
-    posts: Mapped['Post'] = relationship(back_populates='news')
-
-    __table_args__ = (
-        Index('content_hash'),
-        )
+    source: Mapped[Source] = relationship(back_populates="news_items")
+    posts: Mapped[list["Post"]] = relationship(
+        secondary=post_news_items,
+        back_populates="news_items",
+        passive_deletes=True,
+    )
 
 
 class Post(Base):
-    """Represents a generated post ready for publishing.
+    """AI-generated Telegram post assembled from one or more news items."""
 
-    Stores the AI-generated text derived from a NewsItem and tracks its
-    publishing status.
-
-    Attributes:
-        id: Auto-incrementing primary key.
-        news_id: Foreign key referencing the source NewsItem.
-        generated_text: The AI-generated post content (optional).
-        status: Current PostStatus — generated, published, or failed.
-        error_message: Error details if generation or publishing failed (optional).
-        created_at: Timestamp when the post was created.
-        published_at: Timestamp when the post was successfully published.
-
-    Relationships:
-        news: The NewsItem from which this post was generated.
-    """
-    __tablename__ = 'posts'
+    __tablename__ = "posts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    news_id: Mapped[int] = mapped_column(ForeignKey('news.id'), nullable=False, index=True)
-    generated_text: Mapped[str|None] = mapped_column(Text, nullable=True)
-    status: Mapped[PostStatus] = mapped_column(String(20), default=PostStatus.GENERATED, nullable=False) #PostStatus
-    error_message: Mapped[str|None] = mapped_column(String, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    published_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    generated_text: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[PostStatus] = mapped_column(
+        SqlEnum(
+            PostStatus,
+            name="post_status",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=enum_values,
+            validate_strings=True,
+        ),
+        default=PostStatus.GENERATED,
+        nullable=False,
+    )
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    telegram_message_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        nullable=True,
+        unique=True,
+    )
+    published_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
-    news: Mapped['NewsItem'] = relationship(back_populates='posts')
+    news_items: Mapped[list[NewsItem]] = relationship(
+        secondary=post_news_items,
+        back_populates="posts",
+        passive_deletes=True,
+    )
+
 
 class Keyword(Base):
-    """Represents a keyword used for filtering news items.
+    """Include or exclude keyword used to filter collected news items."""
 
-    Keywords can be either inclusive (keep matching items) or exclusive
-    (discard matching items), and can be toggled on/off without deletion.
-
-    Attributes:
-        id: Auto-incrementing primary key.
-        word: The keyword text. Must be unique.
-        type: Whether this is an include or exclude keyword.
-        enabled: Whether this keyword is currently active for filtering.
-    """
-    __tablename__ = 'keywords'
+    __tablename__ = "keywords"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    word: Mapped[str] = mapped_column(String(100), unique=True)
-    type: Mapped[KeywordType] = mapped_column(String(10), default=KeywordType.INCLUDE, nullable=False) #KeywordType
-    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-
+    word: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    type: Mapped[KeywordType] = mapped_column(
+        SqlEnum(
+            KeywordType,
+            name="keyword_type",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=enum_values,
+            validate_strings=True,
+        ),
+        default=KeywordType.INCLUDE,
+        nullable=False,
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
