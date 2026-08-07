@@ -1,52 +1,80 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, field_validator, SecretStr
 from functools import lru_cache
+from typing import Literal
+
+from pydantic import Field, SecretStr, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
 
 class Settings(BaseSettings):
-    """
-    Конфигурация приложения
-    """
-    database_url: str = Field(default='postgresql+asyncpg://', description='postgresql+asyncpg://user:password@host_db')
-    rabbitmq_url: str = Field(default='amqp://guest@rabbitmq:5672', description="URL брокера RabbitMQ")
-    redis_url: str = Field(default='redis://redis:6379/0', description='URL для redis')
+    """Application configuration loaded from environment variables or ``.env``."""
 
-    #tg
-    telegram_api_id: int = Field(default=-1, description='App telegram api_id')
-    telegram_api_hash: str = Field(default='tg_', description='App telegram api_hash')
-    telegram_session_name: str = Field(default='aibot', description='Имя файла сессии')
-    telegram_target_channel: str | None = Field(default=None, description='Канал для публикации постов')
+    database_url: str = Field(description="Async PostgreSQL connection URL")
 
-    #openai
-    openai_api_key: str = Field(default='', description='API key OpenAI')
-    openai_model: str = Field(default='gpt-4o-mini', description='используемая модель, default=gpt-4o-mini')
-    openai_max_tokens: int = Field(default=300, ge=50, le=4000, description='Максимальное число токенов для запроса')
+    # Optional infrastructure integrations used by later project stages.
+    rabbitmq_url: str | None = Field(default=None, description="RabbitMQ broker URL")
+    redis_url: str | None = Field(default=None, description="Redis connection URL")
 
-    #parser
-    parse_interval: int = Field(default=30, ge=1, description='интервал между запуском парсера в минутах')
-    max_news_per_source: int = Field(default=10, ge=1, le=100, description='максимальное количество новостей за запуск парсера')
-
-    #App
-    app_env: str = Field(default='dev', description='dev / prod / test enviroment')
-    log_level: str = Field(default='INFO')
-    app_name: str = Field(default='aibot')
-
-    @field_validator('app_env')
-    @classmethod
-    def validate_env(cls, v:str) -> str:
-        allowed = {'dev', 'prod', 'test'}
-        if v not in allowed:
-            raise ValueError(f'app_env может быть только {allowed}')
-        return v
-    
-    model_config = SettingsConfigDict(
-        env_file='.env',
-        env_file_encoding='utf-8',
-        case_sensitive=False,
-        extra='ignore',
+    # Optional Telegram integration.
+    telegram_api_id: int | None = Field(default=None, description="Telegram application ID")
+    telegram_api_hash: SecretStr | None = Field(
+        default=None,
+        description="Telegram application hash",
     )
+    telegram_session_name: str = Field(default="aibot", description="Telegram session name")
+    telegram_target_channel: str | None = Field(
+        default=None,
+        description="Telegram channel used for publishing",
+    )
+
+    # Optional OpenAI integration.
+    openai_api_key: SecretStr | None = Field(default=None, description="OpenAI API key")
+    openai_model: str = Field(default="gpt-4o-mini", description="OpenAI model name")
+    openai_max_tokens: int = Field(
+        default=300,
+        ge=50,
+        le=4000,
+        description="Maximum number of output tokens",
+    )
+
+    # News collection settings.
+    parse_interval: int = Field(
+        default=30,
+        ge=1,
+        description="Interval between collection runs in minutes",
+    )
+    max_news_per_source: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description="Maximum news items collected from one source per run",
+    )
+
+    # Application settings.
+    app_env: Literal["dev", "test", "prod"] = Field(
+        default="dev",
+        description="Application environment",
+    )
+    log_level: str = Field(default="INFO")
+    app_name: str = Field(default="aibot")
+
+    @field_validator("database_url")
+    @classmethod
+    def validate_database_url(cls, value: str) -> str:
+        if not value.startswith("postgresql+asyncpg://"):
+            raise ValueError("DATABASE_URL must use the postgresql+asyncpg:// scheme")
+        return value
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
 
 settings = get_settings()
