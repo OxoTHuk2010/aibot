@@ -1,6 +1,5 @@
 from datetime import datetime
-from uuid import UUID
-from sqlalchemy import (String, Text, Boolean, DateTime, Integer, Index, UniqueConstraint, func, UUID, ForeignKey)
+from sqlalchemy import (String, Text, Boolean, DateTime, Integer, Index, func, ForeignKey)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 from enum import Enum as PyEnum
@@ -19,7 +18,6 @@ class NewsItemStatus(str, PyEnum):
     NEW = 'new'
     FILTERED = 'filtered'
     GENERATED = 'generated'
-    PUBLISHED = 'published'
     FAILED = 'failed'
 
 class PostStatus(str, PyEnum):
@@ -49,7 +47,7 @@ class Source(Base):
     """Represents a content source (RSS feed, HTML page, or Telegram channel) from which news items are parsed.
 
     Attributes:
-        id: Unique identifier for the source.
+        id: Auto-incrementing primary key.
         name: Human-readable name of the source.
         source_type: Type of the source — one of 'rss', 'html', or 'telegram'.
         url: URL of the source. Must be unique across all sources.
@@ -62,13 +60,14 @@ class Source(Base):
     """
     __tablename__ = 'sources'
 
-    id: Mapped[UUID] = mapped_column(UUID, primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
-    source_type: Mapped[str] = mapped_column(String(20), nullable=False) # [rss, htlm, telegram]
+    source_type: Mapped[str] = mapped_column(String(20), nullable=False)
     url: Mapped[str] = mapped_column(String(500), nullable=False, unique=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    last_parsed_at: Mapped[datetime] = mapped_column(DateTime,server_default=func.now(), server_onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    last_parsed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
 
     news_items: Mapped[list['NewsItem']] = relationship(back_populates='source')
 
@@ -80,7 +79,7 @@ class NewsItem(Base):
     status through the pipeline (new → filtered → generated → published/failed).
 
     Attributes:
-        id: Unique identifier for the news item.
+        id: Auto-incrementing primary key.
         title: Headline or title of the news item.
         url: Direct link to the original article (optional).
         summary: Short summary or excerpt of the news item (optional).
@@ -88,7 +87,7 @@ class NewsItem(Base):
         source_id: Foreign key referencing the Source this item belongs to.
         content_hash: Unique hash of the content for deduplication. Indexed.
         status: Current NewsItemStatus in the processing pipeline. Indexed.
-        created_at: Timestamp when the news item was created.
+        created_at: Timestamp when the news item was created. 
 
     Relationships:
         source: The Source from which this news item was parsed.
@@ -96,22 +95,25 @@ class NewsItem(Base):
     """
     __tablename__ = 'news'
 
-    id: Mapped[UUID] = mapped_column(UUID, primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     url: Mapped[str|None] = mapped_column(String(500), nullable=True)
-    summary: Mapped[str|None] = mapped_column(String(100), nullable=True)
-    raw_text: Mapped[str|None] = mapped_column(String, nullable=True)
-    source_id: Mapped[UUID] = mapped_column(ForeignKey('sources.id'), nullable=False, index=True)
-    content_hash: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
-    status: Mapped[NewsItemStatus] = mapped_column(String(20), default=NewsItemStatus.NEW, nullable=False, index=True) #NewsItemStatus
+    summary: Mapped[str|None] = mapped_column(Text, nullable=True)
+    raw_text: Mapped[str|None] = mapped_column(Text, nullable=True)
+    source_id: Mapped[int] = mapped_column(ForeignKey('sources.id'), nullable=False, index=True)
+    content_hash: Mapped[str] = mapped_column(Text, unique=True, nullable=False, index=True)
+    status: Mapped[NewsItemStatus] = mapped_column(String(20), default=NewsItemStatus.NEW, nullable=False) #NewsItemStatus
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    error_message: Mapped[str|None] = mapped_column(String, nullable=True) 
 
     source: Mapped['Source'] = relationship(back_populates='news_items')
     posts: Mapped['Post'] = relationship(back_populates='news')
 
     __table_args__ = (
-        Index('ix_news_unprocessed_recent', 'content_hash', 'status'),
+        Index('content_hash'),
         )
+
 
 class Post(Base):
     """Represents a generated post ready for publishing.
@@ -120,7 +122,7 @@ class Post(Base):
     publishing status.
 
     Attributes:
-        id: Unique identifier for the post.
+        id: Auto-incrementing primary key.
         news_id: Foreign key referencing the source NewsItem.
         generated_text: The AI-generated post content (optional).
         status: Current PostStatus — generated, published, or failed.
@@ -133,8 +135,8 @@ class Post(Base):
     """
     __tablename__ = 'posts'
 
-    id: Mapped[UUID] = mapped_column(UUID, primary_key=True)
-    news_id: Mapped[UUID] = mapped_column(ForeignKey('news.id'), nullable=False, index=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    news_id: Mapped[int] = mapped_column(ForeignKey('news.id'), nullable=False, index=True)
     generated_text: Mapped[str|None] = mapped_column(Text, nullable=True)
     status: Mapped[PostStatus] = mapped_column(String(20), default=PostStatus.GENERATED, nullable=False) #PostStatus
     error_message: Mapped[str|None] = mapped_column(String, nullable=True)
