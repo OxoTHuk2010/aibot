@@ -1,31 +1,42 @@
+x-application-environment: &application-environment
+  DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-aibot}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-aibot}
+  APP_ENV: ${APP_ENV:-prod}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
 services:
+  migrate:
+    image: aibot-app:cp1
+    restart: "no"
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+    environment: *application-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   app:
+    image: aibot-app:cp1
     build:
       context: .
       dockerfile: Dockerfile
     restart: on-failure
-    environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-aibot}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-aibot}
-      RABBITMQ_URL: amqp://${RABBITMQ_USER:-aibot}:${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD in .env}@rabbitmq:5672/
-      REDIS_URL: redis://redis:6379/0
-      TELEGRAM_API_ID: ${TELEGRAM_API_ID:?Set TELEGRAM_API_ID in .env}
-      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:?Set TELEGRAM_API_HASH in .env}
-      TELEGRAM_SESSION_NAME: ${TELEGRAM_SESSION_NAME:-aibot}
-      TELEGRAM_TARGET_CHANNEL: ${TELEGRAM_TARGET_CHANNEL:?Set TELEGRAM_TARGET_CHANNEL in .env}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:?Set OPENAI_API_KEY in .env}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
-      OPENAI_MAX_TOKENS: ${OPENAI_MAX_TOKENS:-300}
-      PARSE_INTERVAL: ${PARSE_INTERVAL:-30}
-      MAX_NEWS_PER_SOURCE: ${MAX_NEWS_PER_SOURCE:-10}
-      APP_ENV: ${APP_ENV:-prod}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    environment: *application-environment
+    ports:
+      - "8000:8000"
     depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2).read()
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
 
   postgres:
     image: postgres:16-alpine
