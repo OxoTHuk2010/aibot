@@ -1,11 +1,12 @@
 import asyncio
-import os
+import importlib
+import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 from alembic.config import Config
-from sqlalchemy import inspect
+from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from alembic import command
@@ -19,15 +20,6 @@ EXPECTED_TABLES = {
     "posts",
     "sources",
 }
-
-
-def require_test_database_url() -> str:
-    url = os.getenv("TEST_DATABASE_URL")
-    if not url:
-        pytest.skip("TEST_DATABASE_URL is not configured")
-    if not url.startswith("postgresql+asyncpg://"):
-        pytest.fail("TEST_DATABASE_URL must use the postgresql+asyncpg:// scheme")
-    return url
 
 
 def get_alembic_config() -> Config:
@@ -66,6 +58,41 @@ async def load_schema(url: str) -> dict[str, Any]:
             return await connection.run_sync(inspect_schema)
     finally:
         await engine.dispose()
+
+
+async def load_table_names(url: str) -> set[str]:
+    engine = create_async_engine(url)
+    try:
+        async with engine.connect() as connection:
+            return await connection.run_sync(
+                lambda sync_connection: set(inspect(sync_connection).get_table_names())
+            )
+    finally:
+        await engine.dispose()
+
+
+async def drop_empty_alembic_version_table(url: str) -> None:
+    engine = create_async_engine(url)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
+    finally:
+        await engine.dispose()
+
+
+def prepare_clean_database(alembic_config: Config, url: str) -> None:
+    """Reset only an Alembic-managed schema and prove that no tables remain."""
+    tables = asyncio.run(load_table_names(url))
+    if "alembic_version" in tables:
+        command.downgrade(alembic_config, "base")
+
+    remaining_tables = asyncio.run(load_table_names(url))
+    unexpected_tables = remaining_tables - {"alembic_version"}
+    if unexpected_tables:
+        pytest.fail("TEST_DATABASE_URL does not reference a clean Alembic test database")
+
+    asyncio.run(drop_empty_alembic_version_table(url))
+    assert asyncio.run(load_table_names(url)) == set()
 
 
 def assert_check_values(checks: list[str], expected_values: set[str]) -> None:
@@ -164,17 +191,28 @@ def assert_initial_schema(schema: dict[str, Any]) -> None:
     assert schema["posts"]["columns"]["published_at"]["default"] is None
 
 
-def test_initial_migration_on_postgresql(monkeypatch: pytest.MonkeyPatch) -> None:
-    test_database_url = require_test_database_url()
+def test_initial_migration_on_postgresql(
+    monkeypatch: pytest.MonkeyPatch,
+    test_database_url: str,
+) -> None:
     monkeypatch.setenv("DATABASE_URL", test_database_url)
     monkeypatch.setenv("APP_ENV", "test")
+    for module_name in ("app.models", "app.database", "app.config"):
+        sys.modules.pop(module_name, None)
+
     alembic_config = get_alembic_config()
+    prepare_clean_database(alembic_config, test_database_url)
 
     command.upgrade(alembic_config, "head")
     assert_initial_schema(asyncio.run(load_schema(test_database_url)))
 
     command.downgrade(alembic_config, "base")
+    assert asyncio.run(load_table_names(test_database_url)) == {"alembic_version"}
+
     command.upgrade(alembic_config, "head")
     assert_initial_schema(asyncio.run(load_schema(test_database_url)))
 
     command.check(alembic_config)
+
+    database = importlib.import_module("app.database")
+    asyncio.run(database.dispose_engine())

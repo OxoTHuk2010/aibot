@@ -1,5 +1,4 @@
 import importlib
-import os
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -135,13 +134,8 @@ async def test_dispose_engine_delegates_to_engine(
 async def test_postgresql_connection(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    test_database_url: str,
 ) -> None:
-    test_database_url = os.getenv("TEST_DATABASE_URL")
-    if not test_database_url:
-        pytest.skip("TEST_DATABASE_URL is not configured")
-    if not test_database_url.startswith("postgresql+asyncpg://"):
-        pytest.fail("TEST_DATABASE_URL must use the postgresql+asyncpg:// scheme")
-
     database = load_database_module(
         monkeypatch,
         tmp_path,
