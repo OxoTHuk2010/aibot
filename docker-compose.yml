@@ -23,7 +23,7 @@ x-application-environment: &application-environment
 
 services:
   migrate:
-    image: aibot-app:cp5
+    image: aibot-app:latest
     restart: "no"
     command: ["python", "-m", "alembic", "upgrade", "head"]
     environment: *application-environment
@@ -32,7 +32,7 @@ services:
         condition: service_healthy
 
   app:
-    image: aibot-app:cp5
+    image: aibot-app:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -57,7 +57,7 @@ services:
       start_period: 5s
 
   worker:
-    image: aibot-app:cp5
+    image: aibot-app:latest
     restart: unless-stopped
     command:
       - celery
@@ -74,7 +74,7 @@ services:
         condition: service_healthy
 
   beat:
-    image: aibot-app:cp5
+    image: aibot-app:latest
     restart: unless-stopped
     command:
       - celery
