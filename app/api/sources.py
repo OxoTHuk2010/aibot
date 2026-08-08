@@ -5,7 +5,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session
 from app.models import SourceType
-from app.schemas import SourceCreate, SourceResponse, SourceUpdate
+from app.parser.base import (
+    ParserConfigurationError,
+    ParserError,
+    UnsupportedSourceTypeError,
+)
+from app.schemas import ParseSourceResponse, SourceCreate, SourceResponse, SourceUpdate
+from app.services.news_service import SourceDisabledError, parse_source
 from app.services.source_service import (
     SourceAlreadyExistsError,
     SourceNotFoundError,
@@ -29,6 +35,34 @@ def conflict() -> HTTPException:
         status_code=status.HTTP_409_CONFLICT,
         detail="Source URL already exists",
     )
+
+
+@router.post("/{source_id}/parse", response_model=ParseSourceResponse)
+async def parse(source_id: int, session: SessionDependency) -> ParseSourceResponse:
+    try:
+        return await parse_source(session, source_id)
+    except SourceNotFoundError as error:
+        raise not_found() from error
+    except SourceDisabledError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Source is disabled",
+        ) from error
+    except ParserConfigurationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Source parser is not configured",
+        ) from error
+    except UnsupportedSourceTypeError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported source type",
+        ) from error
+    except ParserError as error:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Source fetch or parsing failed",
+        ) from error
 
 
 @router.post("", response_model=SourceResponse, status_code=status.HTTP_201_CREATED)

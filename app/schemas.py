@@ -3,7 +3,7 @@ from typing import Self
 
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.models import KeywordType, SourceType
+from app.models import KeywordType, NewsItemStatus, SourceType
 
 
 class InputSchema(BaseModel):
@@ -122,5 +122,32 @@ class KeywordResponse(BaseModel):
     word: str
     type: KeywordType
     enabled: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class ParseSourceResponse(BaseModel):
+    source_id: int
+    found: int
+    created: int
+    duplicates: int
+    filtered: int
+    errors: int
+
+
+class NewsItemResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    source_id: int
+    external_id: str | None
+    title: str
+    url: str | None
+    summary: str | None
+    raw_text: str | None
+    published_at: datetime | None
+    content_hash: str
+    status: NewsItemStatus
+    error_message: str | None
     created_at: datetime
     updated_at: datetime

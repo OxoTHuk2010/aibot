@@ -5,6 +5,7 @@ from fastapi import FastAPI
 
 from app.api.health import router as health_router
 from app.api.keywords import router as keywords_router
+from app.api.news import router as news_router
 from app.api.sources import router as sources_router
 from app.config import settings
 from app.database import dispose_engine
@@ -23,6 +24,7 @@ def create_app() -> FastAPI:
     application.include_router(health_router, prefix="/api")
     application.include_router(sources_router, prefix="/api")
     application.include_router(keywords_router, prefix="/api")
+    application.include_router(news_router, prefix="/api")
     return application
 
 

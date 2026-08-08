@@ -5,7 +5,7 @@ x-application-environment: &application-environment
 
 services:
   migrate:
-    image: aibot-app:cp2
+    image: aibot-app:cp3
     restart: "no"
     command: ["python", "-m", "alembic", "upgrade", "head"]
     environment: *application-environment
@@ -14,7 +14,7 @@ services:
         condition: service_healthy
 
   app:
-    image: aibot-app:cp2
+    image: aibot-app:cp3
     build:
       context: .
       dockerfile: Dockerfile

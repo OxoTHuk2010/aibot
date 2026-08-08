@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Example feed</title>
+    <item>
+      <title>First story</title>
+      <link>https://example.com/first#section</link>
+      <description>First summary</description>
+      <pubDate>Fri, 08 Aug 2025 10:00:00 GMT</pubDate>
+      <guid>story-1</guid>
+    </item>
+    <item>
+      <title>Title without optional fields</title>
+    </item>
+    <item>
+      <link>https://example.com/malformed</link>
+      <description>Missing required title</description>
+    </item>
+    <item>
+      <title>Third valid story</title>
+      <link>https://example.com/third</link>
+    </item>
+  </channel>
+</rss>
