@@ -2,10 +2,17 @@ x-application-environment: &application-environment
   DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-aibot}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-aibot}
   APP_ENV: ${APP_ENV:-prod}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+  OPENAI_MAX_TOKENS: ${OPENAI_MAX_TOKENS:-300}
+  TELEGRAM_API_ID: ${TELEGRAM_API_ID:-}
+  TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:-}
+  TELEGRAM_SESSION_NAME: ${TELEGRAM_SESSION_NAME:-aibot}
+  TELEGRAM_TARGET_CHANNEL: ${TELEGRAM_TARGET_CHANNEL:-}
 
 services:
   migrate:
-    image: aibot-app:cp3
+    image: aibot-app:cp4
     restart: "no"
     command: ["python", "-m", "alembic", "upgrade", "head"]
     environment: *application-environment
@@ -14,7 +21,7 @@ services:
         condition: service_healthy
 
   app:
-    image: aibot-app:cp3
+    image: aibot-app:cp4
     build:
       context: .
       dockerfile: Dockerfile

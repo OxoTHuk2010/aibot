@@ -20,7 +20,13 @@ def main_module(tmp_path_factory: pytest.TempPathFactory) -> Iterator[ModuleType
     monkeypatch.setenv("DATABASE_URL", UNIT_DATABASE_URL)
     monkeypatch.setenv("APP_ENV", "test")
 
-    for module_name in ("app.main", "app.database", "app.config"):
+    for module_name in (
+        "app.main",
+        "app.api.generate",
+        "app.api.posts",
+        "app.database",
+        "app.config",
+    ):
         sys.modules.pop(module_name, None)
 
     module = importlib.import_module("app.main")

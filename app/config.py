@@ -64,6 +64,12 @@ class Settings(BaseSettings):
             raise ValueError("DATABASE_URL must use the postgresql+asyncpg:// scheme")
         return value
 
+    @field_validator("telegram_api_id", mode="before")
+    @classmethod
+    def empty_optional_integer_is_none(cls, value: object) -> object:
+        """Allow Compose to pass an unset optional numeric integration value."""
+        return None if value == "" else value
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

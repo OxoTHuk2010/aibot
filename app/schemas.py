@@ -3,7 +3,7 @@ from typing import Self
 
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.models import KeywordType, NewsItemStatus, SourceType
+from app.models import KeywordType, NewsItemStatus, Post, PostStatus, SourceType
 
 
 class InputSchema(BaseModel):
@@ -151,3 +151,54 @@ class NewsItemResponse(BaseModel):
     error_message: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class GeneratePostRequest(InputSchema):
+    news_ids: list[int] = Field(min_length=1, max_length=10)
+
+    @field_validator("news_ids")
+    @classmethod
+    def validate_news_ids(cls, value: list[int]) -> list[int]:
+        if any(news_id <= 0 for news_id in value):
+            raise ValueError("news ids must be positive integers")
+        return list(dict.fromkeys(value))
+
+
+class GenerateTestRequest(InputSchema):
+    text: str = Field(min_length=1, max_length=16_000)
+
+    @field_validator("text")
+    @classmethod
+    def validate_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("text must not be blank")
+        return normalized
+
+
+class GenerateTestResponse(BaseModel):
+    generated_text: str
+
+
+class PostResponse(BaseModel):
+    id: int
+    generated_text: str
+    status: PostStatus
+    published_at: datetime | None
+    telegram_message_id: int | None
+    created_at: datetime
+    updated_at: datetime
+    news_ids: list[int]
+
+    @classmethod
+    def from_post(cls, post: Post) -> "PostResponse":
+        return cls(
+            id=post.id,
+            generated_text=post.generated_text,
+            status=post.status,
+            published_at=post.published_at,
+            telegram_message_id=post.telegram_message_id,
+            created_at=post.created_at,
+            updated_at=post.updated_at,
+            news_ids=[item.id for item in post.news_items],
+        )
