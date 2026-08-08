@@ -5,13 +5,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.client import (
     AIAuthenticationError,
-    AIClient,
     AIConfigurationError,
     AIInvalidResponseError,
     AIProviderError,
     AIRateLimitError,
     AITimeoutError,
 )
+from app.ai.factory import create_generator
 from app.ai.generator import PostGenerator
 from app.config import settings
 from app.database import get_session
@@ -32,18 +32,7 @@ SessionDependency = Annotated[AsyncSession, Depends(get_session)]
 
 
 def get_generator() -> PostGenerator:
-    api_key = (
-        settings.openai_api_key.get_secret_value()
-        if settings.openai_api_key is not None
-        else None
-    )
-    return PostGenerator(
-        AIClient(
-            api_key=api_key,
-            model=settings.openai_model,
-            max_tokens=settings.openai_max_tokens,
-        )
-    )
+    return create_generator(settings)
 
 
 GeneratorDependency = Annotated[PostGenerator, Depends(get_generator)]

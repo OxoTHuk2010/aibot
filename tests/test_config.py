@@ -16,11 +16,21 @@ CONFIG_ENV_NAMES = (
     "TELEGRAM_API_HASH",
     "TELEGRAM_SESSION_NAME",
     "TELEGRAM_TARGET_CHANNEL",
+    "TELEGRAM_PUBLISHER",
+    "TELEGRAM_BOT_TOKEN",
+    "TELEGRAM_TARGET_CHAT_ID",
+    "AI_PROVIDER",
     "OPENAI_API_KEY",
     "OPENAI_MODEL",
     "OPENAI_MAX_TOKENS",
+    "OLLAMA_BASE_URL",
+    "OLLAMA_MODEL",
+    "OLLAMA_TIMEOUT",
     "PARSE_INTERVAL",
     "MAX_NEWS_PER_SOURCE",
+    "AUTO_PUBLISH",
+    "PIPELINE_MAX_POSTS_PER_RUN",
+    "PIPELINE_NEWS_PER_POST",
     "APP_ENV",
     "LOG_LEVEL",
     "APP_NAME",
@@ -56,6 +66,13 @@ def test_minimal_configuration_loads(settings_class: type[Any]) -> None:
     assert settings.telegram_api_id is None
     assert settings.telegram_api_hash is None
     assert settings.telegram_target_channel is None
+    assert settings.telegram_bot_token is None
+    assert settings.telegram_target_chat_id is None
+    assert settings.ai_provider == "openai"
+    assert settings.telegram_publisher == "telethon"
+    assert settings.auto_publish is False
+    assert settings.pipeline_max_posts_per_run == 2
+    assert settings.pipeline_news_per_post == 5
 
 
 def test_database_url_is_required(
@@ -128,11 +145,42 @@ def test_unknown_environment_is_rejected(settings_class: type[Any]) -> None:
 @pytest.mark.parametrize(
     ("field", "value"),
     [
+        ("ai_provider", "unknown"),
+        ("telegram_publisher", "unknown"),
+    ],
+)
+def test_unknown_backend_is_rejected(
+    settings_class: type[Any],
+    field: str,
+    value: str,
+) -> None:
+    with pytest.raises(ValidationError, match=field):
+        make_settings(settings_class, **{field: value})
+
+
+@pytest.mark.parametrize("url", ["localhost:11434", "http://", "file:///tmp/ollama"])
+def test_invalid_ollama_base_url_is_rejected(
+    settings_class: type[Any],
+    url: str,
+) -> None:
+    with pytest.raises(ValidationError, match="ollama_base_url"):
+        make_settings(settings_class, ollama_base_url=url)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
         ("openai_max_tokens", 49),
         ("openai_max_tokens", 4001),
         ("parse_interval", 0),
         ("max_news_per_source", 0),
         ("max_news_per_source", 101),
+        ("ollama_timeout", 0),
+        ("ollama_timeout", 601),
+        ("pipeline_max_posts_per_run", 0),
+        ("pipeline_max_posts_per_run", 11),
+        ("pipeline_news_per_post", 0),
+        ("pipeline_news_per_post", 11),
     ],
 )
 def test_numeric_limits_are_enforced(

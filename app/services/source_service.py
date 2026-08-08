@@ -56,6 +56,16 @@ async def list_sources(
     return list((await session.scalars(statement)).all())
 
 
+async def list_enabled_sources(session: AsyncSession) -> list[Source]:
+    """Return every enabled source in a stable order for scheduled ingestion."""
+    statement = (
+        select(Source)
+        .where(Source.enabled.is_(True))
+        .order_by(Source.created_at.asc(), Source.id.asc())
+    )
+    return list((await session.scalars(statement)).all())
+
+
 async def update_source(
     session: AsyncSession,
     source_id: int,

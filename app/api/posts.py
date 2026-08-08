@@ -6,8 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import get_session
 from app.models import PostStatus
+from app.publisher.factory import Publisher, create_publisher
 from app.publisher.telegram import (
-    TelegramPublisher,
     TelegramPublisherConfigurationError,
     TelegramPublishError,
 )
@@ -25,21 +25,11 @@ router = APIRouter(prefix="/posts", tags=["Posts"])
 SessionDependency = Annotated[AsyncSession, Depends(get_session)]
 
 
-def get_publisher() -> TelegramPublisher:
-    api_hash = (
-        settings.telegram_api_hash.get_secret_value()
-        if settings.telegram_api_hash is not None
-        else None
-    )
-    return TelegramPublisher(
-        api_id=settings.telegram_api_id,
-        api_hash=api_hash,
-        session_name=settings.telegram_session_name,
-        target_channel=settings.telegram_target_channel,
-    )
+def get_publisher() -> Publisher:
+    return create_publisher(settings)
 
 
-PublisherDependency = Annotated[TelegramPublisher, Depends(get_publisher)]
+PublisherDependency = Annotated[Publisher, Depends(get_publisher)]
 
 
 def _not_found() -> HTTPException:

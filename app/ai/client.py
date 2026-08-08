@@ -11,7 +11,7 @@ from openai import (
 
 
 class AIError(Exception):
-    """Base error exposed by the OpenAI integration."""
+    """Base error exposed by AI generation integrations."""
 
 
 class AIConfigurationError(AIError):

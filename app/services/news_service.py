@@ -119,6 +119,30 @@ async def list_news_items(
     return list((await session.scalars(statement)).all())
 
 
+async def list_eligible_news_items(
+    session: AsyncSession,
+    *,
+    limit: int,
+) -> list[NewsItem]:
+    """Select unused NEW items for automatic generation using deterministic FIFO order."""
+    if limit < 1:
+        raise ValueError("limit must be at least 1")
+    statement = (
+        select(NewsItem)
+        .where(
+            NewsItem.status == NewsItemStatus.NEW,
+            ~NewsItem.posts.any(),
+        )
+        .order_by(
+            NewsItem.published_at.asc().nulls_last(),
+            NewsItem.created_at.asc(),
+            NewsItem.id.asc(),
+        )
+        .limit(limit)
+    )
+    return list((await session.scalars(statement)).all())
+
+
 def _normalize_item(item: ParsedNewsItem) -> ParsedNewsItem:
     title = " ".join(item.title.split())[:200]
     if not title:

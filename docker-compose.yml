@@ -2,17 +2,28 @@ x-application-environment: &application-environment
   DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-aibot}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-aibot}
   APP_ENV: ${APP_ENV:-prod}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  RABBITMQ_URL: amqp://${RABBITMQ_USER:-aibot}:${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD in .env}@rabbitmq:5672//
+  AUTO_PUBLISH: ${AUTO_PUBLISH:-false}
+  PIPELINE_MAX_POSTS_PER_RUN: ${PIPELINE_MAX_POSTS_PER_RUN:-2}
+  PIPELINE_NEWS_PER_POST: ${PIPELINE_NEWS_PER_POST:-5}
+  AI_PROVIDER: ${AI_PROVIDER:-openai}
   OPENAI_API_KEY: ${OPENAI_API_KEY:-}
   OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
   OPENAI_MAX_TOKENS: ${OPENAI_MAX_TOKENS:-300}
+  OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+  OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4:e4b}
+  OLLAMA_TIMEOUT: ${OLLAMA_TIMEOUT:-120}
+  TELEGRAM_PUBLISHER: ${TELEGRAM_PUBLISHER:-telethon}
   TELEGRAM_API_ID: ${TELEGRAM_API_ID:-}
   TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:-}
   TELEGRAM_SESSION_NAME: ${TELEGRAM_SESSION_NAME:-aibot}
   TELEGRAM_TARGET_CHANNEL: ${TELEGRAM_TARGET_CHANNEL:-}
+  TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+  TELEGRAM_TARGET_CHAT_ID: ${TELEGRAM_TARGET_CHAT_ID:-}
 
 services:
   migrate:
-    image: aibot-app:cp4
+    image: aibot-app:cp5
     restart: "no"
     command: ["python", "-m", "alembic", "upgrade", "head"]
     environment: *application-environment
@@ -21,7 +32,7 @@ services:
         condition: service_healthy
 
   app:
-    image: aibot-app:cp4
+    image: aibot-app:cp5
     build:
       context: .
       dockerfile: Dockerfile
@@ -44,6 +55,40 @@ services:
       timeout: 3s
       retries: 10
       start_period: 5s
+
+  worker:
+    image: aibot-app:cp5
+    restart: unless-stopped
+    command:
+      - celery
+      - -A
+      - app.tasks.celery_app:celery_app
+      - worker
+      - --loglevel=INFO
+      - --concurrency=1
+    environment: *application-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+
+  beat:
+    image: aibot-app:cp5
+    restart: unless-stopped
+    command:
+      - celery
+      - -A
+      - app.tasks.celery_app:celery_app
+      - beat
+      - --loglevel=INFO
+      - --schedule=/tmp/celerybeat-schedule
+    environment: *application-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
 
   postgres:
     image: postgres:16-alpine
