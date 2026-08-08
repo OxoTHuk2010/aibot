@@ -1,3 +1,9 @@
+"""Настраивает offline и async online выполнение миграций Alembic.
+
+URL берётся только из ``Settings``, а импорт моделей регистрирует полную
+``Base.metadata``. Online-режим использует отдельное соединение без пула.
+"""
+
 import asyncio
 from logging.config import fileConfig
 
@@ -5,7 +11,7 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-import app.models  # noqa: F401 -- importing registers every model with Base.metadata
+import app.models  # noqa: F401 -- импорт регистрирует все модели в Base.metadata
 from alembic import context
 from app.config import settings
 from app.database import Base
@@ -15,13 +21,13 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Escape ConfigParser interpolation characters while keeping Settings as the only URL source.
+# Экранирование сохраняет Settings единственным источником URL для ConfigParser.
 config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
 target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
-    """Render migrations without creating a database connection."""
+    """Формирует SQL миграций без создания соединения с PostgreSQL."""
     context.configure(
         url=settings.database_url,
         target_metadata=target_metadata,
@@ -36,6 +42,7 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
+    """Выполняет синхронный Alembic-контекст внутри переданного async-соединения."""
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
@@ -48,6 +55,10 @@ def do_run_migrations(connection: Connection) -> None:
 
 
 async def run_async_migrations() -> None:
+    """Создаёт async engine без пула и выполняет online-миграции.
+
+    Engine гарантированно освобождается после успеха или ошибки миграции.
+    """
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
@@ -62,7 +73,7 @@ async def run_async_migrations() -> None:
 
 
 def run_migrations_online() -> None:
-    """Run migrations through an async SQLAlchemy connection."""
+    """Запускает online-миграции в отдельном asyncio event loop."""
     asyncio.run(run_async_migrations())
 
 

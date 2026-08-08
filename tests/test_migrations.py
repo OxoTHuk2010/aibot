@@ -72,7 +72,7 @@ async def load_table_names(url: str) -> set[str]:
 
 
 def require_clean_database(url: str) -> None:
-    """Refuse to run the destructive migration cycle against a non-empty database."""
+    """Запрещает разрушительный migration cycle для непустой базы данных."""
     tables = asyncio.run(load_table_names(url))
     if tables:
         pytest.fail("DATABASE_URL must reference an empty temporary Compose database")

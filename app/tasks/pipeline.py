@@ -1,3 +1,9 @@
+"""Оркестрирует автоматический цикл parse--generate--publish.
+
+Pipeline переиспользует сервисы CP3/CP4 и изолирует ошибки отдельных источников,
+batch и публикаций. Ошибки PostgreSQL остаются фатальными для Celery delivery.
+"""
+
 import logging
 from dataclasses import asdict, dataclass
 
@@ -16,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(slots=True)
 class PipelineSummary:
-    """JSON-serializable counters produced by one automatic pipeline run."""
+    """Хранит JSON-сериализуемые счётчики одного автоматического запуска."""
 
     sources_total: int = 0
     sources_success: int = 0
@@ -32,6 +38,7 @@ class PipelineSummary:
     publication_errors: int = 0
 
     def to_dict(self) -> dict[str, int]:
+        """Преобразует все счётчики запуска в простой JSON-совместимый словарь."""
         return asdict(self)
 
 
@@ -41,7 +48,11 @@ def build_batches(
     news_per_post: int,
     max_posts: int,
 ) -> list[list[int]]:
-    """Split the bounded FIFO selection into at most ``max_posts`` sequential batches."""
+    """Делит FIFO-выборку на ограниченное число последовательных batch.
+
+    Оба лимита должны быть положительными. Функция не выполняет semantic clustering
+    и сохраняет исходный порядок ID.
+    """
     if news_per_post < 1 or max_posts < 1:
         raise ValueError("batch limits must be at least 1")
     selected = news_ids[: news_per_post * max_posts]
@@ -52,10 +63,15 @@ def build_batches(
 
 
 async def run_pipeline_async() -> dict[str, int]:
-    """Run one ingestion/generation/publication cycle with isolated partial failures."""
+    """Выполняет один цикл ingestion, генерации и необязательной публикации.
+
+    Ошибка адаптера одного Source, batch или publisher учитывается в счётчиках и не
+    останавливает безопасные следующие элементы. SQLAlchemyError прерывает запуск.
+    Общий engine всегда освобождается до закрытия event loop Celery-задачи.
+    """
     summary = PipelineSummary()
     logger.info(
-        "pipeline started",
+        "pipeline запущен",
         extra={"event": "pipeline_started", "auto_publish": settings.auto_publish},
     )
     try:
@@ -65,7 +81,7 @@ async def run_pipeline_async() -> dict[str, int]:
 
         for source in sources:
             logger.info(
-                "source parsing started",
+                "разбор источника запущен",
                 extra={"event": "source_parsing_started", "source_id": source.id},
             )
             try:
@@ -73,15 +89,15 @@ async def run_pipeline_async() -> dict[str, int]:
                     result = await parse_source(session, source.id)
             except SQLAlchemyError:
                 logger.exception(
-                    "pipeline database failure during source parsing",
+                    "ошибка базы данных pipeline при разборе источника",
                     extra={"event": "pipeline_database_failed", "source_id": source.id},
                 )
                 raise
-            # A source adapter is an isolation boundary; unknown adapter failures are partial.
+            # Адаптер источника изолирует частичную ошибку от остальных источников.
             except Exception as error:  # noqa: BLE001
                 summary.sources_failed += 1
                 logger.error(
-                    "source parsing failed",
+                    "разбор источника завершился ошибкой",
                     extra={
                         "event": "source_parsing_failed",
                         "source_id": source.id,
@@ -96,7 +112,7 @@ async def run_pipeline_async() -> dict[str, int]:
             summary.news_duplicates += result.duplicates
             summary.news_filtered += result.filtered
             logger.info(
-                "source parsing completed",
+                "разбор источника завершён",
                 extra={
                     "event": "source_parsing_completed",
                     "source_id": source.id,
@@ -111,7 +127,7 @@ async def run_pipeline_async() -> dict[str, int]:
             eligible = await list_eligible_news_items(session, limit=selection_limit)
         summary.news_selected = len(eligible)
         logger.info(
-            "eligible news selected",
+            "подходящие новости выбраны",
             extra={"event": "eligible_news_selected", "count": len(eligible)},
         )
 
@@ -121,7 +137,7 @@ async def run_pipeline_async() -> dict[str, int]:
             max_posts=settings.pipeline_max_posts_per_run,
         )
         if not batches:
-            logger.info("pipeline completed: %s", summary.to_dict())
+            logger.info("pipeline завершён: %s", summary.to_dict())
             return summary.to_dict()
 
         generator = create_generator(settings)
@@ -132,15 +148,15 @@ async def run_pipeline_async() -> dict[str, int]:
                     post = await generate_post(session, news_ids, generator)
             except SQLAlchemyError:
                 logger.exception(
-                    "pipeline database failure during generation",
+                    "ошибка базы данных pipeline при генерации",
                     extra={"event": "pipeline_database_failed", "batch": batch_index},
                 )
                 raise
-            # AI adapters expose typed errors, but a faulty batch must not stop later batches.
+            # Ошибка одного AI batch не должна останавливать последующие batch.
             except Exception as error:  # noqa: BLE001
                 summary.generation_errors += 1
                 logger.error(
-                    "generation failed",
+                    "генерация завершилась ошибкой",
                     extra={
                         "event": "generation_failed",
                         "batch": batch_index,
@@ -151,27 +167,27 @@ async def run_pipeline_async() -> dict[str, int]:
 
             summary.posts_generated += 1
             logger.info(
-                "post generated",
+                "пост сгенерирован",
                 extra={"event": "post_generated", "post_id": post.id},
             )
             if publisher is None:
                 continue
 
             try:
-                # Safety boundary: AUTO_PUBLISH performs a real external Telegram send.
+                # Граница побочного эффекта: AUTO_PUBLISH создаёт сообщение в Telegram.
                 async with AsyncSessionLocal() as session:
                     await publish_post(session, post.id, publisher)
             except SQLAlchemyError:
                 logger.exception(
-                    "pipeline database failure during publication",
+                    "ошибка базы данных pipeline при публикации",
                     extra={"event": "pipeline_database_failed", "post_id": post.id},
                 )
                 raise
-            # Publication is a partial side effect; preserve generated Posts on any adapter error.
+            # Ошибка publisher сохраняет сгенерированный Post для ручной публикации.
             except Exception as error:  # noqa: BLE001
                 summary.publication_errors += 1
                 logger.error(
-                    "publication failed",
+                    "публикация завершилась ошибкой",
                     extra={
                         "event": "publication_failed",
                         "post_id": post.id,
@@ -182,12 +198,12 @@ async def run_pipeline_async() -> dict[str, int]:
 
             summary.posts_published += 1
             logger.info(
-                "post published",
+                "пост опубликован",
                 extra={"event": "post_published", "post_id": post.id},
             )
 
-        logger.info("pipeline completed: %s", summary.to_dict())
+        logger.info("pipeline завершён: %s", summary.to_dict())
         return summary.to_dict()
     finally:
-        # A Celery worker invokes asyncio.run repeatedly; no asyncpg connection may cross loops.
+        # Worker повторно создаёт event loop, поэтому asyncpg-соединения нельзя переиспользовать.
         await dispose_engine()

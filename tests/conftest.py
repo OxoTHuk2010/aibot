@@ -5,7 +5,7 @@ import pytest
 
 @pytest.fixture(scope="session")
 def database_url() -> str:
-    """Return the PostgreSQL URL for an explicitly isolated test environment."""
+    """Возвращает PostgreSQL URL явно изолированного тестового окружения."""
     url = os.getenv("DATABASE_URL")
     if not url:
         pytest.skip("DATABASE_URL is not configured")

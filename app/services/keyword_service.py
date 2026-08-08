@@ -1,3 +1,9 @@
+"""Реализует сервисные операции управления правилами фильтрации.
+
+Модуль владеет SQL и транзакциями мутаций Keyword и не зависит от HTTP-слоя.
+Уникальность нормализованного слова окончательно обеспечивает PostgreSQL.
+"""
+
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,14 +13,19 @@ from app.schemas import KeywordCreate, KeywordUpdate
 
 
 class KeywordNotFoundError(Exception):
-    """The requested keyword does not exist."""
+    """Сообщает, что запрошенное ключевое слово не существует."""
 
 
 class KeywordAlreadyExistsError(Exception):
-    """A keyword with the same normalized word already exists."""
+    """Сообщает о конфликте уникального нормализованного слова."""
 
 
 async def create_keyword(session: AsyncSession, data: KeywordCreate) -> Keyword:
+    """Создаёт правило фильтрации и фиксирует его в PostgreSQL.
+
+    При конфликте слова транзакция откатывается, а ``IntegrityError`` становится
+    ``KeywordAlreadyExistsError``.
+    """
     keyword = Keyword(word=data.word, type=data.type, enabled=data.enabled)
     session.add(keyword)
     try:
@@ -27,6 +38,7 @@ async def create_keyword(session: AsyncSession, data: KeywordCreate) -> Keyword:
 
 
 async def get_keyword(session: AsyncSession, keyword_id: int) -> Keyword:
+    """Возвращает Keyword по ID или выбрасывает ``KeywordNotFoundError``."""
     keyword = await session.get(Keyword, keyword_id)
     if keyword is None:
         raise KeywordNotFoundError
@@ -41,6 +53,10 @@ async def list_keywords(
     limit: int = 50,
     offset: int = 0,
 ) -> list[Keyword]:
+    """Возвращает страницу правил с SQL-фильтрами типа и enabled.
+
+    Сортировка по времени создания и ID обеспечивает стабильный порядок выборки.
+    """
     statement = select(Keyword)
     if keyword_type is not None:
         statement = statement.where(Keyword.type == keyword_type)
@@ -56,6 +72,11 @@ async def update_keyword(
     keyword_id: int,
     data: KeywordUpdate,
 ) -> Keyword:
+    """Частично обновляет правило фильтрации и фиксирует транзакцию.
+
+    Конфликт нормализованного слова откатывает изменения и преобразуется в
+    ``KeywordAlreadyExistsError``.
+    """
     keyword = await get_keyword(session, keyword_id)
     for field_name, value in data.model_dump(exclude_unset=True).items():
         setattr(keyword, field_name, value)
@@ -69,6 +90,7 @@ async def update_keyword(
 
 
 async def disable_keyword(session: AsyncSession, keyword_id: int) -> None:
+    """Идемпотентно отключает Keyword без физического удаления и фиксирует изменение."""
     keyword = await get_keyword(session, keyword_id)
     keyword.enabled = False
     await session.commit()

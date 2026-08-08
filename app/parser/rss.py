@@ -1,3 +1,9 @@
+"""Реализует получение и нормализацию RSS/Atom-лент.
+
+Адаптер использует HTTP только для чтения источника и не зависит от ORM. Ошибка
+отдельной записи пропускается, а фатальная ошибка ленты становится ``ParserError``.
+"""
+
 import calendar
 import importlib
 from datetime import UTC, datetime
@@ -11,7 +17,7 @@ feedparser: Any = importlib.import_module("feedparser")
 
 
 class RSSParser:
-    """Fetch and normalize RSS or Atom entries."""
+    """Получает RSS/Atom и возвращает единый список ``ParsedNewsItem``."""
 
     def __init__(
         self,
@@ -20,11 +26,17 @@ class RSSParser:
         timeout: float = 10.0,
         client: httpx.AsyncClient | None = None,
     ) -> None:
+        """Настраивает лимит, timeout и необязательный HTTP-клиент для тестов."""
         self.max_items = max_items
         self.timeout = timeout
         self.client = client
 
     async def parse(self, source: ParserSource) -> list[ParsedNewsItem]:
+        """Получает и разбирает одну RSS/Atom-ленту.
+
+        Пустые и повреждённые элементы пропускаются независимо. Ошибка HTTP или
+        полностью неразбираемая лента приводит к ``ParserError``.
+        """
         try:
             if self.client is None:
                 async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
@@ -65,6 +77,7 @@ class RSSParser:
 
 
 def _optional_string(value: object) -> str | None:
+    """Нормализует необязательное значение feedparser до непустой строки."""
     if value is None:
         return None
     text = str(value).strip()
@@ -72,6 +85,7 @@ def _optional_string(value: object) -> str | None:
 
 
 def _entry_datetime(entry: Any) -> datetime | None:
+    """Преобразует дату RSS/Atom в timezone-aware UTC datetime."""
     value = entry.get("published_parsed") or entry.get("updated_parsed")
     if value is None:
         return None

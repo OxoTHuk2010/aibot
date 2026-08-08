@@ -28,7 +28,7 @@ def celery_module(
         sys.modules.pop(name, None)
     module = importlib.import_module("app.tasks.celery_app")
     yield module
-    # Do not leak the fixture's non-running database URL into later migration modules.
+    # Фиктивный DB URL fixture не должен попадать в последующие migration-модули.
     for name in (
         "app.tasks.celery_app",
         "app.tasks.pipeline",

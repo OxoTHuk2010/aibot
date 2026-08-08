@@ -1,3 +1,9 @@
+"""Задаёт единый контракт parser layer и нормализованный результат разбора.
+
+Parser получает данные внешнего источника, но не работает с PostgreSQL. Фабрика
+выбирает конкретный адаптер по принятому ``SourceType`` без plugin framework.
+"""
+
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Protocol
@@ -9,7 +15,11 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class ParsedNewsItem:
-    """Framework-independent normalized output produced by every parser."""
+    """Представляет единый независимый от ORM результат любого parser.
+
+    Обязателен только заголовок; прочие поля сохраняют доступные исходные данные
+    и окончательно нормализуются сервисом ingestion перед записью.
+    """
 
     title: str
     url: str | None = None
@@ -20,28 +30,38 @@ class ParsedNewsItem:
 
 
 class ParserSource(Protocol):
+    """Описывает минимальные поля источника, необходимые parser."""
+
     url: str
     name: str
 
 
 class NewsParser(Protocol):
-    async def parse(self, source: ParserSource) -> list[ParsedNewsItem]: ...
+    """Задаёт общий асинхронный контракт получения нормализованных новостей."""
+
+    async def parse(self, source: ParserSource) -> list[ParsedNewsItem]:
+        """Получает данные одного источника без записи в базу данных."""
+        ...
 
 
 class ParserError(Exception):
-    """An external source could not be fetched or parsed."""
+    """Сообщает, что внешний источник не удалось получить или разобрать."""
 
 
 class ParserConfigurationError(ParserError):
-    """A parser-specific optional integration is not configured."""
+    """Сообщает об отсутствии обязательной настройки выбранного parser."""
 
 
 class UnsupportedSourceTypeError(ParserError):
-    """No parser exists for the requested source type."""
+    """Сообщает, что для типа источника не существует parser."""
 
 
 def create_parser(source_type: "SourceType", app_settings: "Settings") -> NewsParser:
-    """Create the parser for one supported SourceType without a registry framework."""
+    """Создаёт parser для одного поддерживаемого ``SourceType``.
+
+    Telegram credentials извлекаются только при выборе TelegramParser. Для
+    неизвестного типа функция выбрасывает ``UnsupportedSourceTypeError``.
+    """
     from app.parser.html import HTMLParser
     from app.parser.rss import RSSParser
     from app.parser.telegram import TelegramParser

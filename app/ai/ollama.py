@@ -1,3 +1,9 @@
+"""Инкапсулирует обращение к локальному Ollama Chat API.
+
+Адаптер реализует общий контракт AI-клиента через httpx и преобразует сетевые или
+структурные ошибки ответа в типизированные прикладные исключения.
+"""
+
 from typing import Any
 
 import httpx
@@ -6,7 +12,7 @@ from app.ai.client import AIInvalidResponseError, AIProviderError, AITimeoutErro
 
 
 class OllamaClient:
-    """Minimal adapter for the Ollama chat API."""
+    """Адаптирует Ollama Chat API к внутреннему контракту генерации."""
 
     def __init__(
         self,
@@ -16,12 +22,18 @@ class OllamaClient:
         timeout: float,
         client: httpx.AsyncClient | None = None,
     ) -> None:
+        """Сохраняет адрес, модель, timeout и необязательный HTTP-клиент для тестов."""
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout = timeout
         self.client = client
 
     async def generate_text(self, *, instructions: str, source_content: str) -> str:
+        """Запрашивает у Ollama текст с разделёнными system и user сообщениями.
+
+        Метод выполняет внешний HTTP-запрос. Недоступная модель, сетевой timeout и
+        некорректный JSON преобразуются в безопасные внутренние ошибки.
+        """
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": [

@@ -1,3 +1,9 @@
+"""Реализует публикацию текстовых постов через Telegram Bot API.
+
+Адаптер выполняет один внешний ``sendMessage`` и не содержит parser-логики или
+работы с PostgreSQL. Токен используется только при формировании HTTP endpoint.
+"""
+
 from typing import Any
 
 import httpx
@@ -11,7 +17,7 @@ MAX_TELEGRAM_TEXT_LENGTH = 4096
 
 
 class TelegramBotPublisher:
-    """Publish one plain-text message through the Telegram Bot API."""
+    """Публикует один текстовый пост через Telegram Bot API."""
 
     def __init__(
         self,
@@ -21,12 +27,18 @@ class TelegramBotPublisher:
         client: httpx.AsyncClient | None = None,
         timeout: float = 30.0,
     ) -> None:
+        """Сохраняет Bot API-настройки и необязательный HTTP-клиент для тестов."""
         self.token = token
         self.target_chat_id = target_chat_id
         self.client = client
         self.timeout = timeout
 
     async def publish(self, text: str) -> int:
+        """Отправляет реальное Bot API-сообщение и возвращает его ID.
+
+        Метод проверяет обязательные настройки, непустой текст и лимит Telegram.
+        Сетевые и структурные ошибки ответа не раскрывают токен вызывающему коду.
+        """
         if not self.token or not self.target_chat_id:
             raise TelegramPublisherConfigurationError(
                 "Telegram Bot API publication is not configured"

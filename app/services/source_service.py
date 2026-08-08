@@ -1,3 +1,9 @@
+"""Реализует сервисные операции управления источниками новостей.
+
+Модуль владеет SQL и транзакционными границами мутаций Source, но не зависит от
+HTTPException. Уникальность URL окончательно обеспечивает PostgreSQL.
+"""
+
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,14 +13,19 @@ from app.schemas import SourceCreate, SourceUpdate
 
 
 class SourceNotFoundError(Exception):
-    """The requested source does not exist."""
+    """Сообщает, что запрошенный источник не существует."""
 
 
 class SourceAlreadyExistsError(Exception):
-    """A source with the same URL already exists."""
+    """Сообщает о конфликте уникального URL источника."""
 
 
 async def create_source(session: AsyncSession, data: SourceCreate) -> Source:
+    """Создаёт источник и фиксирует его в PostgreSQL.
+
+    При конфликте URL транзакция откатывается, а ``IntegrityError`` преобразуется
+    в ``SourceAlreadyExistsError`` для независимого от HTTP сервисного контракта.
+    """
     source = Source(
         name=data.name,
         source_type=data.source_type,
@@ -32,6 +43,7 @@ async def create_source(session: AsyncSession, data: SourceCreate) -> Source:
 
 
 async def get_source(session: AsyncSession, source_id: int) -> Source:
+    """Возвращает Source по ID или выбрасывает ``SourceNotFoundError``."""
     source = await session.get(Source, source_id)
     if source is None:
         raise SourceNotFoundError
@@ -46,6 +58,10 @@ async def list_sources(
     limit: int = 50,
     offset: int = 0,
 ) -> list[Source]:
+    """Возвращает страницу источников с SQL-фильтрами типа и enabled.
+
+    Сортировка по времени создания и ID обеспечивает стабильный порядок выборки.
+    """
     statement = select(Source)
     if source_type is not None:
         statement = statement.where(Source.source_type == source_type)
@@ -57,7 +73,7 @@ async def list_sources(
 
 
 async def list_enabled_sources(session: AsyncSession) -> list[Source]:
-    """Return every enabled source in a stable order for scheduled ingestion."""
+    """Возвращает все включённые источники в стабильном порядке для pipeline."""
     statement = (
         select(Source)
         .where(Source.enabled.is_(True))
@@ -71,6 +87,11 @@ async def update_source(
     source_id: int,
     data: SourceUpdate,
 ) -> Source:
+    """Частично обновляет источник и фиксирует транзакцию.
+
+    URL преобразуется из Pydantic-типа в строку. Конфликт уникальности откатывает
+    все изменения и становится ``SourceAlreadyExistsError``.
+    """
     source = await get_source(session, source_id)
     values = data.model_dump(exclude_unset=True)
     if "url" in values:
@@ -87,6 +108,7 @@ async def update_source(
 
 
 async def disable_source(session: AsyncSession, source_id: int) -> None:
+    """Идемпотентно отключает Source без физического удаления и фиксирует изменение."""
     source = await get_source(session, source_id)
     source.enabled = False
     await session.commit()

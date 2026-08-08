@@ -1,3 +1,9 @@
+"""Определяет ORM-модели и ограничения данных PostgreSQL.
+
+Модуль хранит согласованный контракт Source, NewsItem, Post и Keyword. Связь
+NewsItem--Post является M:N, а удаление одной стороны не удаляет другую.
+"""
+
 from datetime import datetime
 from enum import Enum as PyEnum
 
@@ -22,29 +28,33 @@ from app.database import Base
 
 
 def enum_values(enum_class: type[PyEnum]) -> list[str]:
-    """Persist the lowercase string values of application enums."""
+    """Возвращает строковые значения enum для CHECK-ограничений PostgreSQL."""
     return [str(member.value) for member in enum_class]
 
 
 class SourceType(str, PyEnum):
+    """Перечисляет поддерживаемые способы получения новостей."""
     RSS = "rss"
     HTML = "html"
     TELEGRAM = "telegram"
 
 
 class NewsItemStatus(str, PyEnum):
+    """Отражает результат приёма и фильтрации новости."""
     NEW = "new"
     FILTERED = "filtered"
     FAILED = "failed"
 
 
 class PostStatus(str, PyEnum):
+    """Отражает lifecycle сгенерированного Telegram-поста."""
     GENERATED = "generated"
     PUBLISHED = "published"
     FAILED = "failed"
 
 
 class KeywordType(str, PyEnum):
+    """Определяет включающее или исключающее правило фильтрации."""
     INCLUDE = "include"
     EXCLUDE = "exclude"
 
@@ -66,7 +76,11 @@ post_news_items = Table(
 
 
 class Source(Base):
-    """RSS, HTML, or Telegram source from which news items are collected."""
+    """Хранит RSS, HTML или Telegram-источник новостей.
+
+    Source владеет своими NewsItem: физическое удаление источника каскадно удаляет
+    собранные новости, а ``enabled=false`` только исключает его из сбора.
+    """
 
     __tablename__ = "sources"
 
@@ -109,7 +123,11 @@ class Source(Base):
 
 
 class NewsItem(Base):
-    """News item collected from one source."""
+    """Хранит нормализованную новость, полученную из одного Source.
+
+    Уникальный SHA-256 ``content_hash`` является окончательной защитой от дублей.
+    Связи с Post независимы от lifecycle самой новости.
+    """
 
     __tablename__ = "news_items"
 
@@ -163,7 +181,11 @@ class NewsItem(Base):
 
 
 class Post(Base):
-    """AI-generated Telegram post assembled from one or more news items."""
+    """Хранит AI-текст и состояние публикации Telegram-поста.
+
+    Post может ссылаться на несколько NewsItem и не владеет ими. Идентификатор
+    Telegram заполняется только после успешной внешней публикации.
+    """
 
     __tablename__ = "posts"
 
@@ -211,7 +233,11 @@ class Post(Base):
 
 
 class Keyword(Base):
-    """Include or exclude keyword used to filter collected news items."""
+    """Хранит включающее или исключающее правило фильтрации новостей.
+
+    Нормализованное слово уникально глобально, а отключённые правила сохраняются,
+    но не участвуют в принятии решения о статусе NewsItem.
+    """
 
     __tablename__ = "keywords"
 

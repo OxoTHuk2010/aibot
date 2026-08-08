@@ -1,3 +1,9 @@
+"""Формирует ограниченный prompt из новостей и вызывает AI-клиент.
+
+Модуль хранит единые инструкции генерации, отделяет их от недоверенных исходных
+материалов и применяет лимиты CP4 без tokenizer-инфраструктуры.
+"""
+
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
@@ -23,6 +29,8 @@ Rules:
 
 @dataclass(frozen=True, slots=True)
 class SourceMaterial:
+    """Содержит безопасно ограничиваемые поля одной новости для prompt."""
+
     title: str
     summary: str | None = None
     raw_text: str | None = None
@@ -31,16 +39,26 @@ class SourceMaterial:
 
 
 class TextGenerationClient(Protocol):
-    async def generate_text(self, *, instructions: str, source_content: str) -> str: ...
+    """Задаёт минимальный контракт поддерживаемого AI backend."""
+
+    async def generate_text(self, *, instructions: str, source_content: str) -> str:
+        """Генерирует текст по доверенным инструкциям и недоверенным данным."""
+        ...
 
 
 class PostGenerator:
-    """Build a bounded prompt from news data and delegate provider interaction."""
+    """Строит ограниченный prompt и делегирует запрос выбранному AI backend."""
 
     def __init__(self, client: TextGenerationClient) -> None:
+        """Принимает клиент, реализующий общий контракт генерации текста."""
         self.client = client
 
     async def generate(self, materials: Sequence[SourceMaterial]) -> str:
+        """Генерирует пост из 1--10 исходных материалов.
+
+        Метод ограничивает объём входа и отклоняет пустой ответ backend. Он не
+        читает и не изменяет PostgreSQL.
+        """
         if not materials:
             raise ValueError("At least one source material is required")
         if len(materials) > MAX_NEWS_ITEMS:
@@ -58,6 +76,7 @@ class PostGenerator:
         return generated_text
 
     async def generate_from_text(self, text: str) -> str:
+        """Генерирует тестовый пост из ручного непустого текста."""
         normalized = text.strip()
         if not normalized:
             raise ValueError("Source text must not be blank")
@@ -65,7 +84,11 @@ class PostGenerator:
 
 
 def build_source_content(materials: Sequence[SourceMaterial]) -> str:
-    """Format and deterministically truncate untrusted source data."""
+    """Форматирует и детерминированно ограничивает недоверенные материалы.
+
+    Каждый блок и общий текст имеют отдельные символьные лимиты. Маркеры явно
+    отделяют данные источника от инструкций, передаваемых AI backend.
+    """
     blocks: list[str] = []
     remaining = MAX_SOURCE_CONTENT_CHARS
     for position, material in enumerate(materials, start=1):

@@ -12,7 +12,7 @@ UNIT_DATABASE_URL = "postgresql+asyncpg://user:password@localhost:5432/aibot_tes
 
 @pytest.fixture(scope="module")
 def schemas(tmp_path_factory: pytest.TempPathFactory) -> Iterator[ModuleType]:
-    """Load schemas without reading the developer's environment or opening a DB connection."""
+    """Загружает схемы без чтения environment и открытия соединения с базой данных."""
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.chdir(tmp_path_factory.mktemp("schema-settings"))
     monkeypatch.setenv("DATABASE_URL", UNIT_DATABASE_URL)

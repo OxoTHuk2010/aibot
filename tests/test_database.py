@@ -18,7 +18,7 @@ def load_database_module(
     app_env: str = "test",
     database_url: str = UNIT_DATABASE_URL,
 ) -> ModuleType:
-    """Import the database module with isolated settings and without opening a connection."""
+    """Импортирует database с изолированными настройками без открытия соединения."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("DATABASE_URL", database_url)
     monkeypatch.setenv("APP_ENV", app_env)

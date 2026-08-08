@@ -33,7 +33,7 @@ async def drop_alembic_version(database_url: str) -> None:
 
 @pytest.fixture(scope="module")
 def management_app(database_url: str) -> Iterator[ModuleType]:
-    """Run API tests on the migrated temporary PostgreSQL database."""
+    """Запускает API-тесты на мигрированной временной базе PostgreSQL."""
     module_names = (
         "app.main",
         "app.api.sources",

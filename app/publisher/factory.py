@@ -1,3 +1,9 @@
+"""Выбирает Telegram publisher по конфигурации приложения.
+
+Фабрика позволяет HTTP API и pipeline использовать общий контракт без зависимости
+от Telethon или Bot API и без дополнительного DI framework.
+"""
+
 from app.config import Settings
 from app.publisher.bot import TelegramBotPublisher
 from app.publisher.telegram import (
@@ -9,7 +15,11 @@ Publisher = TelegramPublisher | TelegramBotPublisher
 
 
 def create_publisher(app_settings: Settings) -> Publisher:
-    """Create the configured CP4 publisher without depending on an HTTP router."""
+    """Создаёт настроенный Telethon- или Bot API-publisher.
+
+    Неизвестный selector приводит к ``TelegramPublisherConfigurationError``.
+    Полнота credentials проверяется адаптером непосредственно перед отправкой.
+    """
     if app_settings.telegram_publisher == "telethon":
         api_hash = (
             app_settings.telegram_api_hash.get_secret_value()

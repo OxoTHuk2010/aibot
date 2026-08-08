@@ -1,3 +1,9 @@
+"""Реализует чтение публичных Telegram-каналов через Telethon.
+
+Parser использует заранее авторизованную пользовательскую сессию, читает только
+текст и не содержит логики публикации. Ошибки Telegram не раскрывают credentials.
+"""
+
 import importlib
 from collections.abc import AsyncIterator, Callable
 from datetime import datetime
@@ -13,7 +19,7 @@ from app.parser.base import (
 
 
 class TelegramParser:
-    """Read recent text messages from one public Telegram channel through Telethon."""
+    """Читает последние текстовые сообщения публичного Telegram-канала."""
 
     def __init__(
         self,
@@ -24,6 +30,7 @@ class TelegramParser:
         max_items: int,
         client_factory: Callable[..., Any] | None = None,
     ) -> None:
+        """Сохраняет Telethon-настройки, лимит и необязательную фабрику для тестов."""
         self.api_id = api_id
         self.api_hash = api_hash
         self.session_name = session_name
@@ -31,6 +38,11 @@ class TelegramParser:
         self.client_factory = client_factory
 
     async def parse(self, source: ParserSource) -> list[ParsedNewsItem]:
+        """Получает сообщения канала и преобразует их в ``ParsedNewsItem``.
+
+        Неавторизованная сессия и отсутствие API credentials считаются ошибкой
+        конфигурации. Созданное соединение гарантированно отключается.
+        """
         if self.api_id is None or not self.api_hash:
             raise ParserConfigurationError("Telegram API credentials are not configured")
         channel = _channel_from_url(source.url)
@@ -63,6 +75,11 @@ class TelegramParser:
 
 
 def _channel_from_url(url: str) -> str:
+    """Извлекает публичное имя канала из допустимого HTTP(S) Telegram URL.
+
+    Приватные invite-ссылки и адреса других хостов отклоняются через
+    ``ParserConfigurationError``.
+    """
     parsed = urlsplit(url.strip())
     if parsed.scheme.lower() not in {"http", "https"}:
         raise ParserConfigurationError("Telegram source URL must use HTTP or HTTPS")
@@ -75,6 +92,10 @@ def _channel_from_url(url: str) -> str:
 
 
 def _message_to_item(message: Any, channel: str) -> ParsedNewsItem | None:
+    """Преобразует текстовое Telethon-сообщение в нормализованную новость.
+
+    Сообщения без текста игнорируются; медиа не скачиваются и не анализируются.
+    """
     raw_text = str(getattr(message, "message", None) or getattr(message, "raw_text", "")).strip()
     if not raw_text:
         return None

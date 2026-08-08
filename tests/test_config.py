@@ -39,7 +39,7 @@ CONFIG_ENV_NAMES = (
 
 @pytest.fixture
 def settings_class(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> type[Any]:
-    """Import config without reading the developer's environment or .env file."""
+    """Импортирует config без чтения пользовательского environment или ``.env``."""
     monkeypatch.chdir(tmp_path)
     for name in CONFIG_ENV_NAMES:
         monkeypatch.delenv(name, raising=False)
@@ -51,7 +51,7 @@ def settings_class(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> type[Any]
 
 
 def make_settings(settings_class: type[Any], **overrides: object) -> Any:
-    """Build settings without reading the developer's real .env file."""
+    """Создаёт Settings без чтения реального пользовательского ``.env``."""
     values: dict[str, object] = {"database_url": ASYNC_DATABASE_URL, **overrides}
     return settings_class(_env_file=None, **values)
 

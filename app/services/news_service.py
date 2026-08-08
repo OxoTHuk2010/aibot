@@ -1,3 +1,9 @@
+"""Оркестрирует ingestion, дедупликацию и чтение новостей.
+
+Сервис отделяет parser layer от PostgreSQL: нормализует элементы, вычисляет
+SHA-256, применяет фильтры и владеет транзакцией одного запуска источника.
+"""
+
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -14,11 +20,11 @@ from app.utils.hashing import content_hash, normalize_url
 
 
 class SourceDisabledError(Exception):
-    """A disabled source cannot be ingested manually."""
+    """Сообщает, что отключённый источник нельзя разбирать вручную."""
 
 
 class NewsItemNotFoundError(Exception):
-    """The requested news item does not exist."""
+    """Сообщает, что запрошенная новость не существует."""
 
 
 async def parse_source(
@@ -27,7 +33,12 @@ async def parse_source(
     *,
     parser: NewsParser | None = None,
 ) -> ParseSourceResponse:
-    """Fetch, filter, deduplicate, and persist one source in a single parse run."""
+    """Получает, фильтрует и сохраняет новости одного источника.
+
+    Каждая вставка использует savepoint: конфликт ``content_hash`` увеличивает
+    счётчик дублей и не откатывает остальные элементы. ``last_parsed_at`` и все
+    успешные записи фиксируются одной итоговой транзакцией после ответа parser.
+    """
     source = await get_source(session, source_id)
     if not source.enabled:
         raise SourceDisabledError
@@ -91,6 +102,7 @@ async def parse_source(
 
 
 async def get_news_item(session: AsyncSession, news_id: int) -> NewsItem:
+    """Возвращает NewsItem по ID или выбрасывает ``NewsItemNotFoundError``."""
     news_item = await session.get(NewsItem, news_id)
     if news_item is None:
         raise NewsItemNotFoundError
@@ -105,6 +117,11 @@ async def list_news_items(
     limit: int = 50,
     offset: int = 0,
 ) -> list[NewsItem]:
+    """Возвращает страницу новостей с SQL-фильтрами источника и статуса.
+
+    Сначала идут наиболее свежие опубликованные новости, затем записи без даты в
+    стабильном порядке времени создания и ID.
+    """
     statement = select(NewsItem)
     if source_id is not None:
         statement = statement.where(NewsItem.source_id == source_id)
@@ -124,7 +141,11 @@ async def list_eligible_news_items(
     *,
     limit: int,
 ) -> list[NewsItem]:
-    """Select unused NEW items for automatic generation using deterministic FIFO order."""
+    """Выбирает неиспользованные new-новости в детерминированном FIFO-порядке.
+
+    SQL исключает NewsItem с любой M:N-связью Post и применяет обязательный
+    положительный лимит до загрузки данных.
+    """
     if limit < 1:
         raise ValueError("limit must be at least 1")
     statement = (
@@ -144,6 +165,11 @@ async def list_eligible_news_items(
 
 
 def _normalize_item(item: ParsedNewsItem) -> ParsedNewsItem:
+    """Приводит parser-результат к ограничениям ORM перед сохранением.
+
+    Заголовок обязателен, URL и external ID ограничены длиной, а naive datetime
+    трактуется как UTC. Нарушение контракта элемента приводит к ``ValueError``.
+    """
     title = " ".join(item.title.split())[:200]
     if not title:
         raise ValueError("news title must not be blank")
@@ -167,6 +193,7 @@ def _normalize_item(item: ParsedNewsItem) -> ParsedNewsItem:
 
 
 def _optional_text(value: str | None) -> str | None:
+    """Удаляет внешние пробелы и заменяет пустой необязательный текст на ``None``."""
     if value is None:
         return None
     normalized = value.strip()
@@ -174,6 +201,7 @@ def _optional_text(value: str | None) -> str | None:
 
 
 def _is_unique_violation(error: IntegrityError) -> bool:
+    """Определяет PostgreSQL unique violation по SQLSTATE 23505."""
     sqlstate = getattr(error.orig, "sqlstate", None)
     if sqlstate is None:
         sqlstate = getattr(getattr(error.orig, "__cause__", None), "sqlstate", None)

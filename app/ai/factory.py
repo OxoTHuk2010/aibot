@@ -1,3 +1,9 @@
+"""Выбирает AI backend по конфигурации приложения.
+
+Фабрика изолирует router и Celery pipeline от конкретных клиентов OpenAI и Ollama,
+не вводя контейнер зависимостей или plugin registry.
+"""
+
 from app.ai.client import AIClient, AIConfigurationError
 from app.ai.generator import PostGenerator, TextGenerationClient
 from app.ai.ollama import OllamaClient
@@ -5,7 +11,11 @@ from app.config import Settings
 
 
 def create_generator(app_settings: Settings) -> PostGenerator:
-    """Create the configured CP4 generator without depending on an HTTP router."""
+    """Создаёт генератор с настроенным OpenAI- или Ollama-клиентом.
+
+    Неизвестный selector приводит к ``AIConfigurationError``. Наличие credentials
+    проверяет конкретный backend только при фактическом обращении.
+    """
     client: TextGenerationClient
     if app_settings.ai_provider == "openai":
         api_key = (

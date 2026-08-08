@@ -1,3 +1,9 @@
+"""Настраивает асинхронный слой доступа к PostgreSQL через SQLAlchemy.
+
+Модуль создаёт общий engine, фабрику сессий и FastAPI dependency. Он не открывает
+соединение при импорте и не определяет транзакционные границы успешных операций.
+"""
+
 from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -21,11 +27,16 @@ AsyncSessionLocal = async_sessionmaker(
 
 
 class Base(DeclarativeBase):
-    """Base class for SQLAlchemy ORM models."""
+    """Объединяет metadata всех декларативных ORM-моделей приложения."""
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
-    """Yield a database session and always release it after the request."""
+    """Передаёт запросу отдельную асинхронную SQLAlchemy-сессию.
+
+    Успешный запрос не фиксируется автоматически. При исключении dependency
+    откатывает незавершённую транзакцию, повторно выбрасывает ошибку и всегда
+    закрывает сессию.
+    """
     session = AsyncSessionLocal()
     try:
         yield session
@@ -37,5 +48,5 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def dispose_engine() -> None:
-    """Release all pooled database connections."""
+    """Закрывает все соединения общего пула SQLAlchemy engine."""
     await engine.dispose()

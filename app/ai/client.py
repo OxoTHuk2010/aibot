@@ -1,3 +1,9 @@
+"""Инкапсулирует обращение к OpenAI Responses API и его ошибки.
+
+Адаптер отделяет SDK от генератора и преобразует provider-исключения в стабильные
+прикладные типы без раскрытия ключа или содержимого внешнего ответа.
+"""
+
 from typing import Any
 
 from openai import (
@@ -11,35 +17,35 @@ from openai import (
 
 
 class AIError(Exception):
-    """Base error exposed by AI generation integrations."""
+    """Служит базовым типом ошибок интеграций AI-генерации."""
 
 
 class AIConfigurationError(AIError):
-    """Required provider configuration is absent."""
+    """Сообщает об отсутствии обязательной настройки AI-провайдера."""
 
 
 class AIAuthenticationError(AIError):
-    """The provider rejected the configured credentials."""
+    """Сообщает, что AI-провайдер отклонил credentials."""
 
 
 class AIRateLimitError(AIError):
-    """The provider rate limit prevented generation."""
+    """Сообщает, что ограничение частоты провайдера остановило генерацию."""
 
 
 class AITimeoutError(AIError):
-    """The provider could not be reached within the request timeout."""
+    """Сообщает, что AI-провайдер не ответил за установленное время."""
 
 
 class AIInvalidResponseError(AIError):
-    """The provider returned no usable generated text."""
+    """Сообщает, что AI-провайдер не вернул пригодный текст."""
 
 
 class AIProviderError(AIError):
-    """The provider failed for another reason."""
+    """Сообщает о прочей безопасно отображаемой ошибке AI-провайдера."""
 
 
 class AIClient:
-    """Small adapter around the OpenAI Responses API."""
+    """Адаптирует OpenAI Responses API к внутреннему контракту генератора."""
 
     def __init__(
         self,
@@ -50,6 +56,7 @@ class AIClient:
         timeout: float = 30.0,
         provider: Any | None = None,
     ) -> None:
+        """Сохраняет модель, лимиты и необязательный fake provider для тестов."""
         self.api_key = api_key
         self.model = model
         self.max_tokens = max_tokens
@@ -57,7 +64,11 @@ class AIClient:
         self.provider = provider
 
     async def generate_text(self, *, instructions: str, source_content: str) -> str:
-        """Generate text while keeping instructions separate from source data."""
+        """Генерирует текст, передавая инструкции отдельно от исходных данных.
+
+        Метод выполняет внешний запрос и преобразует ожидаемые ошибки SDK в
+        внутренние типы. Пустой ответ считается ``AIInvalidResponseError``.
+        """
         if not self.api_key and self.provider is None:
             raise AIConfigurationError("OpenAI API key is not configured")
 

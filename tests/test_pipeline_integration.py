@@ -19,8 +19,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 @pytest.fixture(scope="module")
 def migrated_pipeline_database(database_url: str) -> Iterator[str]:
-    # Earlier config unit tests intentionally import Settings with a fake localhost URL.
-    # Alembic must resolve the current integration DATABASE_URL instead of that cached module.
+    # Предыдущие config-тесты намеренно импортируют Settings с фиктивным localhost URL.
+    # Alembic должен заново получить integration DATABASE_URL, а не использовать кеш модуля.
     for name in ("app.models", "app.database", "app.config"):
         sys.modules.pop(name, None)
     config = Config(str(PROJECT_ROOT / "alembic.ini"))

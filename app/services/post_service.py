@@ -1,3 +1,9 @@
+"""Реализует генерацию, чтение и публикацию Post.
+
+Сервис владеет транзакционными границами и M:N-связями Post--NewsItem, но не
+зависит от FastAPI или конкретного AI/Telegram backend.
+"""
+
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Protocol
@@ -11,39 +17,49 @@ from app.models import NewsItem, NewsItemStatus, Post, PostStatus
 
 
 class PostNotFoundError(Exception):
-    """The requested post does not exist."""
+    """Сообщает, что запрошенный пост не существует."""
 
 
 class NewsItemsNotFoundError(Exception):
-    """At least one requested news item does not exist."""
+    """Сообщает, какие запрошенные новости отсутствуют."""
 
     def __init__(self, news_ids: Sequence[int]) -> None:
+        """Сохраняет отсутствующие ID для вызывающего сервисного клиента."""
         self.news_ids = list(news_ids)
         super().__init__("Requested news items were not found")
 
 
 class InvalidNewsItemStateError(Exception):
-    """At least one news item is not eligible for generation."""
+    """Сообщает, какие новости не подходят для генерации по статусу."""
 
     def __init__(self, news_ids: Sequence[int]) -> None:
+        """Сохраняет ID новостей со статусом, отличным от new."""
         self.news_ids = list(news_ids)
         super().__init__("Only news items with status=new can be generated")
 
 
 class PostAlreadyPublishedError(Exception):
-    """A published post must not be sent again."""
+    """Запрещает повторную отправку уже опубликованного поста."""
 
 
 class PostNotPublishableError(Exception):
-    """The post has no generated content eligible for publication."""
+    """Сообщает, что состояние или текст Post не допускают публикацию."""
 
 
 class GeneratorLike(Protocol):
-    async def generate(self, materials: Sequence[SourceMaterial]) -> str: ...
+    """Задаёт минимальный контракт генератора для сервисного слоя."""
+
+    async def generate(self, materials: Sequence[SourceMaterial]) -> str:
+        """Формирует текст поста из подготовленных материалов."""
+        ...
 
 
 class PublisherLike(Protocol):
-    async def publish(self, text: str) -> int: ...
+    """Задаёт минимальный контракт Telegram publisher для сервиса."""
+
+    async def publish(self, text: str) -> int:
+        """Публикует текст и возвращает внешний ID сообщения."""
+        ...
 
 
 async def generate_post(
@@ -51,7 +67,12 @@ async def generate_post(
     news_ids: Sequence[int],
     generator: GeneratorLike,
 ) -> Post:
-    """Generate and persist a Post linked to all requested eligible news items."""
+    """Генерирует и сохраняет Post для подходящих NewsItem.
+
+    Повторы ID удаляются с сохранением порядка. Отсутствующие или не-new новости,
+    а также любая ошибка генератора приводят к rollback; Post записывается только
+    после успешной генерации вместе со всеми M:N-связями.
+    """
     ordered_ids = list(dict.fromkeys(news_ids))
     statement = (
         select(NewsItem)
@@ -99,6 +120,7 @@ async def generate_post(
 
 
 async def get_post(session: AsyncSession, post_id: int) -> Post:
+    """Возвращает Post вместе с NewsItem или выбрасывает ``PostNotFoundError``."""
     statement = (
         select(Post)
         .options(selectinload(Post.news_items))
@@ -117,6 +139,10 @@ async def list_posts(
     limit: int = 50,
     offset: int = 0,
 ) -> list[Post]:
+    """Возвращает страницу постов с необязательным SQL-фильтром статуса.
+
+    M:N-связи NewsItem загружаются заранее для построения ответа без async lazy load.
+    """
     statement = select(Post).options(selectinload(Post.news_items))
     if status is not None:
         statement = statement.where(Post.status == status)
@@ -130,7 +156,12 @@ async def publish_post(
     post_id: int,
     publisher: PublisherLike,
 ) -> Post:
-    """Publish one generated Post and persist the Telegram delivery result."""
+    """Публикует generated-пост и сохраняет результат Telegram.
+
+    Строка Post блокируется до завершения транзакции, что сериализует конкурентные
+    запросы одного процесса. Уже опубликованный или непригодный Post не передаётся
+    publisher; при любой ошибке изменения базы данных откатываются.
+    """
     statement = (
         select(Post)
         .options(selectinload(Post.news_items))

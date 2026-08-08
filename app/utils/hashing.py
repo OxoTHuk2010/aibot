@@ -1,10 +1,20 @@
+"""Содержит детерминированную нормализацию и SHA-256 дедупликацию новостей.
+
+Контракт намеренно минимален: URL сохраняет query, но теряет fragment, а текст
+сравнивается без учёта регистра и повторяющихся пробелов.
+"""
+
 import hashlib
 from datetime import UTC, datetime
 from urllib.parse import urlsplit, urlunsplit
 
 
 def normalize_url(url: str) -> str:
-    """Apply the deliberately small CP3 URL normalization contract."""
+    """Применяет минимальный принятый контракт нормализации URL.
+
+    Scheme и hostname приводятся к нижнему регистру, fragment удаляется, остальные
+    части URL сохраняются для предсказуемой идентичности.
+    """
     parsed = urlsplit(url.strip())
     hostname = (parsed.hostname or "").lower()
     if ":" in hostname and not hostname.startswith("["):
@@ -22,7 +32,11 @@ def content_hash(
     raw_text: str | None,
     published_at: datetime | None,
 ) -> str:
-    """Return a deterministic SHA-256 digest for the MVP deduplication identity."""
+    """Возвращает детерминированный SHA-256 для дедупликации NewsItem.
+
+    При наличии URL идентичность строится из URL и заголовка. Иначе используются
+    заголовок, исходный текст и нормализованная дата публикации.
+    """
     normalized_title = _normalize_text(title)
     if url:
         identity = f"url:{normalize_url(url)}\ntitle:{normalized_title}"
@@ -37,10 +51,12 @@ def content_hash(
 
 
 def _normalize_text(value: str) -> str:
+    """Схлопывает пробелы и приводит текст к регистронезависимому виду."""
     return " ".join(value.split()).casefold()
 
 
 def _normalize_datetime(value: datetime | None) -> str:
+    """Представляет необязательный datetime в стабильном UTC ISO-формате."""
     if value is None:
         return ""
     if value.tzinfo is None:

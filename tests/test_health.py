@@ -14,7 +14,7 @@ UNIT_DATABASE_URL = "postgresql+asyncpg://user:password@localhost:5432/aibot_tes
 
 @pytest.fixture(scope="module")
 def main_module(tmp_path_factory: pytest.TempPathFactory) -> Iterator[ModuleType]:
-    """Import the ASGI app without reading the developer's environment or .env."""
+    """Импортирует ASGI-приложение без чтения environment или ``.env``."""
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.chdir(tmp_path_factory.mktemp("main-settings"))
     monkeypatch.setenv("DATABASE_URL", UNIT_DATABASE_URL)

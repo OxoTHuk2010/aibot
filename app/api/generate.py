@@ -1,3 +1,9 @@
+"""Публикует HTTP-операции генерации текста через выбранный AI backend.
+
+Модуль не содержит prompt или provider-логику: он собирает зависимости, вызывает
+сервис генерации и преобразует типизированные ошибки интеграции в безопасные ответы.
+"""
+
 from typing import Annotated, NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -32,6 +38,7 @@ SessionDependency = Annotated[AsyncSession, Depends(get_session)]
 
 
 def get_generator() -> PostGenerator:
+    """Создаёт генератор для backend, выбранного настройками приложения."""
     return create_generator(settings)
 
 
@@ -39,6 +46,11 @@ GeneratorDependency = Annotated[PostGenerator, Depends(get_generator)]
 
 
 def _raise_ai_http(error: Exception) -> NoReturn:
+    """Преобразует известную ошибку AI backend в стабильный HTTP-ответ.
+
+    Текст ответа не включает provider payload, исходные материалы или credentials.
+    Функция всегда выбрасывает ``HTTPException`` и не возвращает управление.
+    """
     if isinstance(error, AIConfigurationError):
         detail = "AI generation is not configured"
         status_code = status.HTTP_503_SERVICE_UNAVAILABLE
@@ -57,11 +69,27 @@ def _raise_ai_http(error: Exception) -> NoReturn:
     raise HTTPException(status_code=status_code, detail=detail) from error
 
 
-@router.post("/test", response_model=GenerateTestResponse)
+@router.post(
+    "/test",
+    response_model=GenerateTestResponse,
+    summary="Проверить AI-генерацию",
+    description=(
+        "Генерирует текст из ручного материала без чтения и записи PostgreSQL. "
+        "Вызов обращается к выбранному внешнему или локальному AI backend."
+    ),
+    response_description="Тестовый сгенерированный текст.",
+    responses={
+        422: {"description": "Тело запроса не прошло валидацию."},
+        502: {"description": "AI backend вернул ошибочный или пустой ответ."},
+        503: {"description": "AI backend не настроен, отклонил доступ или ограничил запросы."},
+        504: {"description": "AI backend не ответил за установленное время."},
+    },
+)
 async def test_generation(
     data: GenerateTestRequest,
     generator: GeneratorDependency,
 ) -> GenerateTestResponse:
+    """Проверяет выбранный AI backend без побочных эффектов в PostgreSQL."""
     try:
         generated_text = await generator.generate_from_text(data.text)
     except (
@@ -76,12 +104,35 @@ async def test_generation(
     return GenerateTestResponse(generated_text=generated_text)
 
 
-@router.post("", response_model=PostResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=PostResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Сгенерировать пост",
+    description=(
+        "Формирует пост из 1--10 существующих NewsItem со статусом new и сохраняет "
+        "его M:N-связи после успешного ответа AI backend."
+    ),
+    response_description="Созданный пост со статусом generated.",
+    responses={
+        404: {"description": "Одна или несколько новостей не найдены."},
+        409: {"description": "Хотя бы одна новость имеет статус, отличный от new."},
+        422: {"description": "Тело запроса не прошло валидацию."},
+        502: {"description": "AI backend вернул ошибочный или пустой ответ."},
+        503: {"description": "AI backend не настроен, отклонил доступ или ограничил запросы."},
+        504: {"description": "AI backend не ответил за установленное время."},
+    },
+)
 async def generate(
     data: GeneratePostRequest,
     session: SessionDependency,
     generator: GeneratorDependency,
 ) -> PostResponse:
+    """Генерирует и сохраняет новый пост из подходящих новостей.
+
+    При любой ошибке AI или проверки входных NewsItem сервис откатывает транзакцию,
+    поэтому частично созданный Post не остаётся в базе данных.
+    """
     try:
         post = await generate_post(session, data.news_ids, generator)
     except NewsItemsNotFoundError as error:

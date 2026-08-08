@@ -1,22 +1,28 @@
+"""Реализует публикацию постов через пользовательскую сессию Telethon.
+
+Модуль отделён от Telegram parser и выполняет реальный внешний побочный эффект
+только при вызове ``publish``. Ошибки адаптируются к стабильным типам сервиса.
+"""
+
 import importlib
 from collections.abc import Callable
 from typing import Any
 
 
 class TelegramPublisherError(Exception):
-    """Base error exposed by Telegram publication."""
+    """Служит базовым типом ошибок публикации в Telegram."""
 
 
 class TelegramPublisherConfigurationError(TelegramPublisherError):
-    """Required Telegram publication configuration is absent or invalid."""
+    """Сообщает об отсутствующей или неверной конфигурации publisher."""
 
 
 class TelegramPublishError(TelegramPublisherError):
-    """Telegram failed to accept the outgoing post."""
+    """Сообщает, что Telegram не принял исходящий пост."""
 
 
 class TelegramPublisher:
-    """Send one plain-text post to the configured Telegram channel."""
+    """Отправляет один текстовый пост в настроенный канал через Telethon."""
 
     def __init__(
         self,
@@ -27,6 +33,7 @@ class TelegramPublisher:
         target_channel: str | None,
         client_factory: Callable[..., Any] | None = None,
     ) -> None:
+        """Сохраняет настройки сессии и необязательную фабрику клиента для тестов."""
         self.api_id = api_id
         self.api_hash = api_hash
         self.session_name = session_name
@@ -34,7 +41,12 @@ class TelegramPublisher:
         self.client_factory = client_factory
 
     async def publish(self, text: str) -> int:
-        """Perform the external, state-changing Telegram send operation."""
+        """Отправляет реальное Telegram-сообщение и возвращает его ID.
+
+        Метод проверяет конфигурацию и авторизацию, не допускает пустой текст и
+        гарантированно отключает созданный клиент. Ошибки становятся безопасными
+        исключениями publisher layer.
+        """
         if self.api_id is None or not self.api_hash or not self.target_channel:
             raise TelegramPublisherConfigurationError(
                 "Telegram publication is not configured"
@@ -53,7 +65,7 @@ class TelegramPublisher:
                 raise TelegramPublisherConfigurationError(
                     "Telegram session is not authorized"
                 )
-            # Safety boundary: this call creates a real external Telegram message.
+            # Граница побочного эффекта: вызов создаёт реальное сообщение в Telegram.
             message = await client.send_message(
                 self.target_channel,
                 normalized_text,

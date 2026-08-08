@@ -1,3 +1,9 @@
+"""Реализует демонстрационный parser списков HTML-статей.
+
+Поддерживается простой профиль на основе элементов ``article``; универсального
+selector DSL модуль не предоставляет. Отдельная повреждённая статья пропускается.
+"""
+
 from datetime import UTC, datetime
 from urllib.parse import urljoin
 
@@ -10,7 +16,7 @@ USER_AGENT = "aibot-learning-mvp/0.1"
 
 
 class HTMLParser:
-    """Parse a simple article-list page using the built-in demonstration profile."""
+    """Разбирает простую HTML-страницу по встроенному учебному профилю."""
 
     def __init__(
         self,
@@ -19,11 +25,17 @@ class HTMLParser:
         timeout: float = 10.0,
         client: httpx.AsyncClient | None = None,
     ) -> None:
+        """Настраивает лимит, timeout и необязательный HTTP-клиент для тестов."""
         self.max_items = max_items
         self.timeout = timeout
         self.client = client
 
     async def parse(self, source: ParserSource) -> list[ParsedNewsItem]:
+        """Получает HTML и нормализует распознанные элементы ``article``.
+
+        Ошибка получения страницы становится ``ParserError``. Некорректная
+        отдельная статья не останавливает обработку остальных элементов.
+        """
         headers = {"User-Agent": USER_AGENT}
         try:
             if self.client is None:
@@ -52,6 +64,11 @@ class HTMLParser:
 
 
 def _parse_article(article: Tag, base_url: str) -> ParsedNewsItem | None:
+    """Преобразует один HTML-элемент article в нормализованную новость.
+
+    Относительные ссылки разрешаются от URL источника. Если обязательный заголовок
+    отсутствует или элемент повреждён, функция возвращает ``None``.
+    """
     try:
         title_node = article.select_one("h1, h2, h3")
         if title_node is None:
@@ -81,6 +98,7 @@ def _parse_article(article: Tag, base_url: str) -> ParsedNewsItem | None:
 
 
 def _parse_datetime(value: object) -> datetime | None:
+    """Разбирает ISO datetime и добавляет UTC для значения без timezone."""
     if value is None:
         return None
     parsed = datetime.fromisoformat(str(value).strip())
