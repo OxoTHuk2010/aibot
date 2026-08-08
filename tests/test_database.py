@@ -134,12 +134,12 @@ async def test_dispose_engine_delegates_to_engine(
 async def test_postgresql_connection(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    test_database_url: str,
+    database_url: str,
 ) -> None:
     database = load_database_module(
         monkeypatch,
         tmp_path,
-        database_url=test_database_url,
+        database_url=database_url,
     )
     try:
         async with database.engine.connect() as connection:

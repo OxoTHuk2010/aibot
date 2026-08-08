@@ -59,7 +59,7 @@ post_news_items = Table(
     ),
     Column(
         "news_item_id",
-        ForeignKey("news.id", ondelete="CASCADE"),
+        ForeignKey("news_items.id", ondelete="CASCADE"),
         primary_key=True,
     ),
 )
@@ -111,7 +111,7 @@ class Source(Base):
 class NewsItem(Base):
     """News item collected from one source."""
 
-    __tablename__ = "news"
+    __tablename__ = "news_items"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     source_id: Mapped[int] = mapped_column(

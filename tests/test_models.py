@@ -9,7 +9,7 @@ from sqlalchemy import BigInteger, CheckConstraint, String, Text
 from sqlalchemy import Enum as SqlEnum
 from sqlalchemy.orm import configure_mappers
 
-TEST_DATABASE_URL = "postgresql+asyncpg://user:password@localhost:5432/aibot_test"
+UNIT_DATABASE_URL = "postgresql+asyncpg://user:password@localhost:5432/aibot_test"
 
 
 @pytest.fixture(scope="module")
@@ -17,7 +17,7 @@ def models(tmp_path_factory: pytest.TempPathFactory) -> Iterator[ModuleType]:
     """Import model metadata without reading the developer's real environment or .env."""
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.chdir(tmp_path_factory.mktemp("model-settings"))
-    monkeypatch.setenv("DATABASE_URL", TEST_DATABASE_URL)
+    monkeypatch.setenv("DATABASE_URL", UNIT_DATABASE_URL)
     monkeypatch.setenv("APP_ENV", "test")
 
     sys.modules.pop("app.models", None)
@@ -35,6 +35,19 @@ def models(tmp_path_factory: pytest.TempPathFactory) -> Iterator[ModuleType]:
 
 def test_mappers_configure(models: ModuleType) -> None:
     configure_mappers()
+
+
+def test_news_item_physical_table_contract(models: ModuleType) -> None:
+    assert models.NewsItem.__tablename__ == "news_items"
+    assert "news_items" in models.Base.metadata.tables
+    assert "news" not in models.Base.metadata.tables
+
+    news_item_foreign_key = next(
+        foreign_key
+        for foreign_key in models.post_news_items.foreign_keys
+        if foreign_key.parent.name == "news_item_id"
+    )
+    assert news_item_foreign_key.target_fullname == "news_items.id"
 
 
 def test_enum_values(models: ModuleType) -> None:
