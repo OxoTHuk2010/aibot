@@ -1,5 +1,6 @@
 import importlib
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -13,7 +14,7 @@ RABBITMQ_URL = "amqp://test:test@127.0.0.1:5672//"
 def celery_module(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-) -> ModuleType:
+) -> Iterator[ModuleType]:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("DATABASE_URL", ASYNC_DATABASE_URL)
     monkeypatch.setenv("RABBITMQ_URL", RABBITMQ_URL)
@@ -25,7 +26,16 @@ def celery_module(
         "app.config",
     ):
         sys.modules.pop(name, None)
-    return importlib.import_module("app.tasks.celery_app")
+    module = importlib.import_module("app.tasks.celery_app")
+    yield module
+    # Do not leak the fixture's non-running database URL into later migration modules.
+    for name in (
+        "app.tasks.celery_app",
+        "app.tasks.pipeline",
+        "app.database",
+        "app.config",
+    ):
+        sys.modules.pop(name, None)
 
 
 def test_celery_uses_rabbitmq_json_utc_and_no_result_backend(
